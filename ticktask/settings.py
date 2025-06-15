@@ -66,7 +66,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "ticktask.wsgi.application"
+WSGI_APPLICATION = "ticktask.server.wsgi.application"
 
 
 # Database
