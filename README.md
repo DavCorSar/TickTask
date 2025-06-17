@@ -1,5 +1,7 @@
 # TickTask
 
+⚠️ **This project is currently under active development and not yet ready for production use. Expect changes, bugs, and incomplete features.**
+
 **TickTask** is a web application designed to clock in/out and track time spent on various tasks. It's built with a modern stack: Django + Django Ninja for the backend and Nuxt + Vuetify for the frontend.
 
 ---
