@@ -8,10 +8,16 @@ dependencies = [
     "django>=5.2.3",
     "django-cors-headers>=4.7.0",
     "django-ninja>=1.4.3",
+    "django-ninja-jwt>=5.3.7",
+    "flake8>=7.2.0",
+    "pytest>=8.4.0",
+    "python-decouple>=3.8",
+    "sphinx>=8.2.3",
+    "sphinx-autodoc-typehints>=3.2.0",
 ]
 
 [project.scripts]
-utiv360 = "ticktask.manage:main"
+ticktask = "ticktask.manage:main"
 
 [build-system]
 requires = ["hatchling"]
