@@ -33,6 +33,17 @@ class Task(models.Model):
     name = models.CharField(max_length=200)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tasks")
 
+    class Meta:
+        """
+        Include the unique constraint of task name per user.
+        """
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"], name="unique_task_per_user"
+            )
+        ]
+
     def get_time_dedicated(self) -> timedelta:
         """
         This function will return the amount of time
@@ -53,6 +64,17 @@ class SubTask(models.Model):
     name = models.CharField(max_length=200)
     description = models.CharField(max_length=600)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="subtasks")
+
+    class Meta:
+        """
+        Include the unique constraint of subtask name per task.
+        """
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task", "name"], name="unique_subtask_per_task"
+            )
+        ]
 
     def get_time_dedicated(self) -> timedelta:
         """
