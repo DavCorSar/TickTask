@@ -32,5 +32,6 @@ class TaskSchema(Schema):
     Definition of the schema of each individual task.
     """
 
+    id: int
     name: str
     subtasks: list[SubTaskSchema]
