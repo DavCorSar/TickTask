@@ -16,9 +16,9 @@
         show-expand
         expand-on-click
         v-model:expanded="expanded">
-        <!-- Fila principal (task) -->
         <template #item.name="{ item }">
           <span
+            @click="selectTask(item)"
             :class="{
               'text-blue-darken-3 font-weight-bold':
                 selectedTask?.id === item.id,
@@ -27,7 +27,6 @@
           </span>
         </template>
 
-        <!-- Subfila expandida con subtasks -->
         <template #expanded-row="{ item }">
           <tr>
             <td :colspan="taskHeaders.length">
@@ -56,7 +55,6 @@
         </template>
       </v-data-table>
 
-      <!-- Botones -->
       <v-row
         v-if="selectedTask && selectedSubtask"
         class="mt-6"
@@ -89,25 +87,9 @@
     layout: "defaultlogged",
   });
 
-  const tasks = ref([
-    {
-      id: 1,
-      name: "Project A",
-      subtasks: [
-        { id: 11, name: "Design" },
-        { id: 12, name: "Development" },
-      ],
-    },
-    {
-      id: 2,
-      name: "Project B",
-      subtasks: [
-        { id: 21, name: "Testing" },
-        { id: 22, name: "Documentation" },
-      ],
-    },
-  ]);
+  const { $api } = useNuxtApp();
 
+  const tasks = ref([]);
   const taskHeaders = [{ text: "Task", value: "name" }];
   const subtaskHeaders = [{ text: "Subtask", value: "name" }];
 
@@ -116,14 +98,20 @@
   const isClockedIn = ref(false);
   const loadingTasks = ref(false);
 
-  // Track expanded rows
   const expanded = ref([]);
 
-  onMounted(() => {
+  onMounted(async () => {
     loadingTasks.value = true;
-    setTimeout(() => {
+    try {
+      const response = await $api("/ticktask/user/get-tasks-and-subtasks/", {
+        method: "GET",
+      });
+      tasks.value = response;
+    } catch (error) {
+      console.error("Error fetching tasks:", error);
+    } finally {
       loadingTasks.value = false;
-    }, 1000);
+    }
   });
 
   const canClockIn = computed(
@@ -133,7 +121,11 @@
     () => selectedTask.value && selectedSubtask.value && isClockedIn.value
   );
 
-  // Cuando se selecciona una subtask
+  function selectTask(task) {
+    selectedTask.value = task;
+    selectedSubtask.value = null;
+  }
+
   function selectSubtask(subtask, task) {
     selectedTask.value = task;
     selectedSubtask.value = subtask;
