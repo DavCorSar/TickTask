@@ -32,16 +32,18 @@ def insert_dummy_subtasks(
     if not tasks_and_subtasks:
         tasks_and_subtasks = [
             TaskSchema(
+                id=0,
                 name="Example1",
                 subtasks=[
                     SubTaskSchema(
+                        id=0,
                         name="Subtask-1-1",
                         description="First subtask of the first task",
                         time_entries=[],
                     )
                 ],
             ),
-            TaskSchema(name="Example2", subtasks=[]),
+            TaskSchema(id=0, name="Example2", subtasks=[]),
         ]
     user = User.objects.get(username=username)  # pylint: disable=no-member
 
