@@ -21,7 +21,7 @@
             @click="selectTask(item)"
             :class="{
               'text-blue-darken-3 font-weight-bold':
-                selectedTask?.id === item.id,
+                selectedTask?.id === item.id && selectSubtask,
             }">
             {{ item.name }}
           </span>
@@ -49,7 +49,34 @@
                     {{ subtask.name }}
                   </span>
                 </template>
+
+                <template #body.append>
+                  <tr>
+                    <td :colspan="subtaskHeaders.length">
+                      <v-btn
+                        color="primary"
+                        @click="openAddSubTaskDialog(item)"
+                        block>
+                        ➕ Add Subtask
+                      </v-btn>
+                    </td>
+                  </tr>
+                </template>
               </v-data-table>
+            </td>
+          </tr>
+        </template>
+
+        <template #body.append>
+          <tr>
+            <td :colspan="taskHeaders.length">
+              <v-btn
+                color="primary"
+                @click="openAddTaskDialog"
+                variant="flat"
+                block>
+                ➕ Add Task
+              </v-btn>
             </td>
           </tr>
         </template>
@@ -76,10 +103,21 @@
       </v-row>
     </v-card>
   </v-container>
+  <AddTaskDialog
+    v-model="dialogAddTaskVisible"
+    @task-created="handleTaskCreated" />
+
+  <AddSubTaskDialog
+    v-if="currentTaskForSubtask"
+    v-model="dialogAddSubTaskVisible"
+    :task-id="currentTaskForSubtask.id"
+    @subtask-created="handleSubTaskCreated" />
 </template>
 
 <script setup>
   import { ref, computed, onMounted } from "vue";
+  import AddTaskDialog from "~/components/AddTaskDialog.vue";
+  import AddSubTaskDialog from "~/components/AddSubTaskDialog.vue";
 
   definePageMeta({
     middleware: "auth",
@@ -97,6 +135,9 @@
   const selectedSubtask = ref(null);
   const isClockedIn = ref(false);
   const loadingTasks = ref(false);
+  const dialogAddTaskVisible = ref(false);
+  const dialogAddSubTaskVisible = ref(false);
+  const currentTaskForSubtask = ref(null);
 
   const expanded = ref([]);
 
@@ -127,11 +168,14 @@
   }
 
   function selectSubtask(subtask, task) {
+    // TODO(David): Show the time entries of this task during the current day
+    // TODO(David): Show somewhere the task and subtask selected
     selectedTask.value = task;
     selectedSubtask.value = subtask;
   }
 
   function clockIn() {
+    // TODO(David): When clocking in, show a counter of the time and the hour when it was done
     isClockedIn.value = true;
     console.log(
       `Clocked in to ${selectedTask.value.name} > ${selectedSubtask.value.name}`
@@ -139,9 +183,32 @@
   }
 
   function clockOut() {
+    // TODO(David): Save a `TimeEntry` into the database
     isClockedIn.value = false;
     console.log(
       `Clocked out from ${selectedTask.value.name} > ${selectedSubtask.value.name}`
     );
+  }
+
+  const openAddTaskDialog = () => {
+    dialogAddTaskVisible.value = true;
+  };
+
+  const handleTaskCreated = (task) => {
+    tasks.value.push(task);
+  };
+
+  function openAddSubTaskDialog(task) {
+    currentTaskForSubtask.value = task;
+    dialogAddSubTaskVisible.value = true;
+  }
+
+  function handleSubTaskCreated(newSubtask) {
+    const task = tasks.value.find(
+      (t) => t.id === currentTaskForSubtask.value.id
+    );
+    if (task) {
+      task.subtasks.push(newSubtask);
+    }
   }
 </script>
