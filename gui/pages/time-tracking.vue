@@ -82,6 +82,15 @@
         </template>
       </v-data-table>
 
+      <v-row v-if="isClockedIn && clockInTime" class="mt-2" justify="center">
+        <v-col cols="12" class="text-center">
+          <v-alert type="success" variant="tonal">
+            ⏰ <strong>Clocked in at:</strong>
+            {{ clockInTime.toLocaleTimeString() }}<br />
+            ⏳ <strong>Time elapsed:</strong> {{ clockInDuration }}
+          </v-alert>
+        </v-col>
+      </v-row>
       <v-row
         v-if="selectedTask && selectedSubtask"
         class="mt-6"
@@ -123,7 +132,7 @@
 </template>
 
 <script setup>
-  import { ref, computed, onMounted } from "vue";
+  import { ref, computed, onMounted, onBeforeUnmount } from "vue";
   import AddTaskDialog from "~/components/AddTaskDialog.vue";
   import AddSubTaskDialog from "~/components/AddSubTaskDialog.vue";
 
@@ -146,6 +155,11 @@
   const dialogAddTaskVisible = ref(false);
   const dialogAddSubTaskVisible = ref(false);
   const currentTaskForSubtask = ref(null);
+
+  const clockInTime = ref(null);
+  const clockInDuration = ref("00:00:00");
+  let clockInterval = null;
+  const activeTimeEntryId = ref(null);
 
   const expanded = ref([]);
 
@@ -181,20 +195,64 @@
     selectedSubtask.value = subtask;
   }
 
-  function clockIn() {
-    // TODO(David): When clocking in, show a counter of the time and the hour when it was done
-    isClockedIn.value = true;
-    console.log(
-      `Clocked in to ${selectedTask.value.name} > ${selectedSubtask.value.name}`
-    );
+  async function clockIn() {
+    try {
+      const response = await $api("/ticktask/user/clock-in/", {
+        method: "POST",
+        body: {
+          subtask_id: selectedSubtask.value.id,
+        },
+      });
+
+      isClockedIn.value = true;
+      clockInTime.value = new Date(response.clock_in);
+      activeTimeEntryId.value = response.id;
+      startClockInTimer();
+    } catch (err) {
+      console.error("Error during clock in:", err);
+    }
   }
 
-  function clockOut() {
-    // TODO(David): Save a `TimeEntry` into the database
-    isClockedIn.value = false;
-    console.log(
-      `Clocked out from ${selectedTask.value.name} > ${selectedSubtask.value.name}`
-    );
+  async function clockOut() {
+    try {
+      console.log("entry id: ", activeTimeEntryId.value);
+      const response = await $api("/ticktask/user/clock-out/", {
+        method: "POST",
+        body: {
+          entity_id: activeTimeEntryId.value,
+        },
+      });
+
+      isClockedIn.value = false;
+      if (clockInterval) clearInterval(clockInterval);
+
+      clockInTime.value = null;
+      clockInDuration.value = "00:00:00";
+      activeTimeEntryId.value = null;
+    } catch (err) {
+      console.error("Error during clock out:", err);
+    }
+  }
+
+  function startClockInTimer() {
+    if (clockInterval) clearInterval(clockInterval);
+
+    clockInterval = setInterval(() => {
+      const now = new Date();
+      const diff = now - clockInTime.value; // en ms
+
+      const hours = String(Math.floor(diff / 3600000)).padStart(2, "0");
+      const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(
+        2,
+        "0"
+      );
+      const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(
+        2,
+        "0"
+      );
+
+      clockInDuration.value = `${hours}:${minutes}:${seconds}`;
+    }, 1000);
   }
 
   const openAddTaskDialog = () => {
@@ -218,4 +276,8 @@
       task.subtasks.push(newSubtask);
     }
   }
+
+  onBeforeUnmount(() => {
+    if (clockInterval) clearInterval(clockInterval);
+  });
 </script>
