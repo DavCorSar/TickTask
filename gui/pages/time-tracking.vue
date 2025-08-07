@@ -132,6 +132,7 @@
 </template>
 
 <script setup>
+  // TODO(David): Allow to delete tasks and subtasks
   import { ref, computed, onMounted, onBeforeUnmount } from "vue";
   import AddTaskDialog from "~/components/AddTaskDialog.vue";
   import AddSubTaskDialog from "~/components/AddSubTaskDialog.vue";
@@ -196,6 +197,7 @@
   }
 
   async function clockIn() {
+    // TODO(David): Don't let to clock-in if there are another time entry that has not been closed
     try {
       const response = await $api("/ticktask/user/clock-in/", {
         method: "POST",
@@ -214,6 +216,7 @@
   }
 
   async function clockOut() {
+    // TODO(David): Clock-out automatically when more than 12 hours have passed
     try {
       console.log("entry id: ", activeTimeEntryId.value);
       const response = await $api("/ticktask/user/clock-out/", {
