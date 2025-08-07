@@ -15,14 +15,20 @@ from ticktask.server.schemas.tasks_schema import (
     SubTaskSchema,
     SubTaskCreationSchema,
 )
+from ticktask.server.schemas.time_entry_schema import (
+    ClockInSchema,
+    ClockOutSchema,
+    TimeEntrySchema,
+)
 
 try:
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "utiv360.settings")
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ticktask.settings")
     django.setup()
 except RuntimeError:
     pass
 
-from ticktask.models import Task, SubTask
+from ticktask.models import Task, SubTask, TimeEntry
+from django.utils import timezone
 
 ticktask_router = Router()
 
@@ -35,7 +41,7 @@ ticktask_router = Router()
 )
 def get_user_tasks(request):
     """
-    Retorna los ScenarioDefinition favoritos asociados al usuario autenticado.
+    Returns the tasks and subtasks associated to each user.
     """
     if not request.auth:
         return {"error": "No autorizado"}, 401
@@ -51,7 +57,7 @@ def get_user_tasks(request):
 )
 def create_task(request, data: TaskCreationSchema):
     """
-    Crea una nueva tarea para el usuario autenticado.
+    Creates a new task for the authenticated user.
     """
     if not request.auth:
         return {"error": "No autorizado"}, 401
@@ -71,14 +77,14 @@ def create_task(request, data: TaskCreationSchema):
 )
 def create_subtask(request, data: SubTaskCreationSchema):
     """
-    Crea una nueva subtarea asociada a una tarea.
+    Creates a new subtask for the authenticated user.
     """
     if not request.auth:
         return {"error": "No autorizado"}, 401
 
     try:
         task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
-    except:
+    except Task.DoesNotExist:  # pylint: disable=no-member
         return {"error": "Tarea no encontrada"}, 404
 
     subtask = SubTask.objects.create(  # pylint: disable=no-member
@@ -88,3 +94,57 @@ def create_subtask(request, data: SubTaskCreationSchema):
     )
 
     return subtask
+
+
+@ticktask_router.post(
+    "/user/clock-in/",
+    response=TimeEntrySchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def clock_in(request, data: ClockInSchema):
+    """
+    Registers a new time entry to the corresponding subtask.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        subtask = SubTask.objects.select_related("task").get(id=data.subtask_id)  # pylint: disable=no-member
+    except SubTask.DoesNotExist:  # pylint: disable=no-member
+        return {"error": "Subtarea no encontrada"}, 404
+
+    if subtask.task.user != request.auth:
+        return {"error": "No autorizado para esta subtarea"}, 403
+    entry = TimeEntry.objects.create(subtask=subtask)  # pylint: disable=no-member
+
+    return entry
+
+
+@ticktask_router.post(
+    "/user/clock-out/",
+    response=TimeEntrySchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def clock_out(request, data: ClockOutSchema):
+    """
+    Updates the given TimeEntry with clock_out.
+    """
+    print("Clocking out")
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        entry = TimeEntry.objects.select_related("subtask__task").get(  # pylint: disable=no-member
+            id=data.entity_id, clock_out__isnull=True
+        )
+    except TimeEntry.DoesNotExist:  # pylint: disable=no-member
+        return {"error": "Entrada no encontrada o ya cerrada"}, 404
+
+    if entry.subtask.task.user != request.auth:
+        return {"error": "No autorizado para esta entrada de tiempo"}, 403
+
+    entry.clock_out = timezone.now()
+    entry.save()
+    return entry
