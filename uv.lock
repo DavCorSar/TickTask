@@ -497,6 +497,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-django"
+version = "4.11.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b1/fb/55d580352db26eb3d59ad50c64321ddfe228d3d8ac107db05387a2fadf3a/pytest_django-4.11.1.tar.gz", hash = "sha256:a949141a1ee103cb0e7a20f1451d355f83f5e4a5d07bdd4dcfdd1fd0ff227991", size = 86202 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/be/ac/bd0608d229ec808e51a21044f3f2f27b9a37e7a0ebaca7247882e67876af/pytest_django-4.11.1-py3-none-any.whl", hash = "sha256:1b63773f648aa3d8541000c26929c1ea63934be1cfa674c76436966d73fe6a10", size = 25281 },
+]
+
+[[package]]
 name = "python-decouple"
 version = "3.8"
 source = { registry = "https://pypi.org/simple" }
@@ -652,6 +664,7 @@ dependencies = [
     { name = "django-ninja-jwt" },
     { name = "flake8" },
     { name = "pytest" },
+    { name = "pytest-django" },
     { name = "python-decouple" },
     { name = "sphinx" },
     { name = "sphinx-autodoc-typehints" },
@@ -665,6 +678,7 @@ requires-dist = [
     { name = "django-ninja-jwt", specifier = ">=5.3.7" },
     { name = "flake8", specifier = ">=7.2.0" },
     { name = "pytest", specifier = ">=8.4.0" },
+    { name = "pytest-django", specifier = ">=4.11.1" },
     { name = "python-decouple", specifier = ">=3.8" },
     { name = "sphinx", specifier = ">=8.2.3" },
     { name = "sphinx-autodoc-typehints", specifier = ">=3.2.0" },

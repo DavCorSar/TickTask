@@ -1,6 +1,8 @@
 <template>
-  <v-container fluid class="fill-height">
-    <Home />
+  <v-container fluid>
+    <span class="mt-2 text-lg font-semibold text-gray-800"
+      >TODO: Define the page that will contain the tracker-history</span
+    >
   </v-container>
 </template>
 
