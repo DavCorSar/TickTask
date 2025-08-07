@@ -102,6 +102,14 @@
         </v-btn>
       </v-row>
     </v-card>
+    <v-row v-if="selectedTask && selectedSubtask" class="mt-6" justify="center">
+      <v-col cols="12" class="text-center">
+        <v-alert type="info" variant="tonal">
+          <strong>Selected Task:</strong> {{ selectedTask.name }}<br />
+          <strong>Selected Subtask:</strong> {{ selectedSubtask.name }}
+        </v-alert>
+      </v-col>
+    </v-row>
   </v-container>
   <AddTaskDialog
     v-model="dialogAddTaskVisible"
@@ -169,7 +177,6 @@
 
   function selectSubtask(subtask, task) {
     // TODO(David): Show the time entries of this task during the current day
-    // TODO(David): Show somewhere the task and subtask selected
     selectedTask.value = task;
     selectedSubtask.value = subtask;
   }
