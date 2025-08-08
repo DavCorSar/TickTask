@@ -93,6 +93,24 @@
               {{ clockInTime.toLocaleTimeString() }}<br />
               ⏳ <strong>Time elapsed:</strong> {{ clockInDuration }}
             </div>
+
+            <div v-if="recentTimeEntries.length" class="mt-3">
+              <strong>⏱ Latest time entries (24h):</strong>
+              <ul class="mt-1">
+                <li v-for="entry in recentTimeEntries" :key="entry.id">
+                  {{ new Date(entry.clock_in).toLocaleTimeString() }}
+                  -
+                  {{
+                    entry.clock_out
+                      ? new Date(entry.clock_out).toLocaleTimeString()
+                      : "Ongoing"
+                  }}
+                </li>
+              </ul>
+            </div>
+            <div v-else class="mt-3">
+              <em>No time entries in the last 24 hours.</em>
+            </div>
           </v-alert>
         </v-col>
       </v-row>
@@ -168,6 +186,7 @@
   const clockInDuration = ref("00:00:00");
   let clockInterval = null;
   const activeTimeEntryId = ref(null);
+  const recentTimeEntries = ref([]);
 
   const expanded = ref([]);
 
@@ -218,9 +237,10 @@
   }
 
   function selectSubtask(subtask, task) {
-    // TODO(David): Show the time entries of this task during the current day
     selectedTask.value = task;
     selectedSubtask.value = subtask;
+
+    fetchRecentTimeEntries(subtask.id);
   }
 
   async function clockIn() {
@@ -239,6 +259,7 @@
       activeTask.value = selectedTask.value;
       activeSubTask.value = selectedSubtask.value;
       startClockInTimer();
+      fetchRecentTimeEntries(activeSubTask.value.id);
     } catch (err) {
       console.error("Error during clock in:", err);
     }
@@ -265,6 +286,21 @@
       activeSubTask.value = null;
     } catch (err) {
       console.error("Error during clock out:", err);
+    }
+  }
+
+  async function fetchRecentTimeEntries(subtaskId) {
+    try {
+      const response = await $api("/ticktask/user/get-time-entries/", {
+        method: "POST",
+        body: { subtask_id: subtaskId, last_hours: 24 },
+      });
+
+      recentTimeEntries.value = response;
+      console.log("HERE: ", recentTimeEntries.value);
+    } catch (err) {
+      console.error("Error fetching recent time entries:", err);
+      recentTimeEntries.value = [];
     }
   }
 
