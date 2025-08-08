@@ -4,6 +4,7 @@ tasks and subtasks information.
 """
 
 import os
+from datetime import timedelta
 
 import django
 from ninja import Router
@@ -19,6 +20,7 @@ from ticktask.server.schemas.time_entry_schema import (
     ClockInSchema,
     ClockOutSchema,
     TimeEntrySchema,
+    TimeEntryHistoryRequestSchema,
 )
 
 try:
@@ -192,3 +194,22 @@ def get_user_clocked_in_activity(request):
             }
         ],
     }
+
+
+@ticktask_router.post(
+    "/user/get-time-entries/",
+    response=list[TimeEntrySchema],
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def get_history_time_entries(request, data: TimeEntryHistoryRequestSchema):
+    """
+    Returns the `TimeEntry`s associated with a specific subtask.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+    cutoff = timezone.now() - timedelta(hours=data.last_hours)
+    time_entries = TimeEntry.objects.filter(  # pylint: disable=no-member
+        subtask_id=data.subtask_id, clock_in__gte=cutoff
+    ).order_by("-clock_in")
+    return time_entries
