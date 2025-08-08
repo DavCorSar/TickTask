@@ -31,3 +31,13 @@ class TimeEntrySchema(Schema):
     id: int
     clock_in: datetime
     clock_out: datetime | None
+
+
+class TimeEntryHistoryRequestSchema(Schema):
+    """
+    Schema used to request the last time entries of
+    a given `SubTask` during the past `last_hours`.
+    """
+
+    subtask_id: int
+    last_hours: int
