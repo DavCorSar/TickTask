@@ -85,9 +85,14 @@
       <v-row v-if="isClockedIn && clockInTime" class="mt-2" justify="center">
         <v-col cols="12" class="text-center">
           <v-alert type="success" variant="tonal">
-            ⏰ <strong>Clocked in at:</strong>
-            {{ clockInTime.toLocaleTimeString() }}<br />
-            ⏳ <strong>Time elapsed:</strong> {{ clockInDuration }}
+            <div>
+              📝 <strong>Task:</strong> {{ activeTask?.name || "N/A" }}<br />
+              🧩 <strong>Subtask:</strong> {{ activeSubTask?.name || "N/A"
+              }}<br />
+              ⏰ <strong>Clocked in at:</strong>
+              {{ clockInTime.toLocaleTimeString() }}<br />
+              ⏳ <strong>Time elapsed:</strong> {{ clockInDuration }}
+            </div>
           </v-alert>
         </v-col>
       </v-row>
@@ -151,6 +156,8 @@
 
   const selectedTask = ref(null);
   const selectedSubtask = ref(null);
+  const activeTask = ref(null);
+  const activeSubTask = ref(null);
   const isClockedIn = ref(false);
   const loadingTasks = ref(false);
   const dialogAddTaskVisible = ref(false);
@@ -171,6 +178,26 @@
         method: "GET",
       });
       tasks.value = response;
+
+      const timeEntryResponse = await $api(
+        "/ticktask/user/get-clocked-in-time-entry/",
+        { method: "GET" }
+      );
+
+      if (timeEntryResponse) {
+        const task = timeEntryResponse;
+        const subtask = task.subtasks[0];
+        const entry = subtask.time_entries[0];
+
+        selectedTask.value = task;
+        activeTask.value = task;
+        selectedSubtask.value = subtask;
+        activeSubTask.value = subtask;
+        activeTimeEntryId.value = entry.id;
+        isClockedIn.value = true;
+        clockInTime.value = new Date(entry.clock_in);
+        startClockInTimer();
+      }
     } catch (error) {
       console.error("Error fetching tasks:", error);
     } finally {
@@ -209,6 +236,8 @@
       isClockedIn.value = true;
       clockInTime.value = new Date(response.clock_in);
       activeTimeEntryId.value = response.id;
+      activeTask.value = selectedTask.value;
+      activeSubTask.value = selectedSubtask.value;
       startClockInTimer();
     } catch (err) {
       console.error("Error during clock in:", err);
@@ -232,6 +261,8 @@
       clockInTime.value = null;
       clockInDuration.value = "00:00:00";
       activeTimeEntryId.value = null;
+      activeTask.value = null;
+      activeSubTask.value = null;
     } catch (err) {
       console.error("Error during clock out:", err);
     }
