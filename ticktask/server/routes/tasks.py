@@ -4,6 +4,7 @@ tasks and subtasks information.
 """
 
 import os
+from datetime import timedelta
 
 import django
 from ninja import Router
@@ -19,6 +20,7 @@ from ticktask.server.schemas.time_entry_schema import (
     ClockInSchema,
     ClockOutSchema,
     TimeEntrySchema,
+    TimeEntryHistoryRequestSchema,
 )
 
 try:
@@ -148,3 +150,66 @@ def clock_out(request, data: ClockOutSchema):
     entry.clock_out = timezone.now()
     entry.save()
     return entry
+
+
+@ticktask_router.get(
+    "/user/get-clocked-in-time-entry/",
+    response=TaskSchema | None,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def get_user_clocked_in_activity(request):
+    """
+    Returns the `Task` where the user is clocked in if exists.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+    time_entry = (
+        TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
+        .filter(clock_out__isnull=True, subtask__task__user=request.auth)
+        .first()
+    )
+
+    if not time_entry:
+        return None
+
+    subtask = time_entry.subtask
+    task = subtask.task
+
+    return {
+        "id": task.id,
+        "name": task.name,
+        "subtasks": [
+            {
+                "id": subtask.id,
+                "name": subtask.name,
+                "description": subtask.description,
+                "time_entries": [
+                    {
+                        "id": time_entry.id,
+                        "clock_in": time_entry.clock_in,
+                        "clock_out": time_entry.clock_out,
+                    }
+                ],
+            }
+        ],
+    }
+
+
+@ticktask_router.post(
+    "/user/get-time-entries/",
+    response=list[TimeEntrySchema],
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def get_history_time_entries(request, data: TimeEntryHistoryRequestSchema):
+    """
+    Returns the `TimeEntry`s associated with a specific subtask.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+    cutoff = timezone.now() - timedelta(hours=data.last_hours)
+    time_entries = TimeEntry.objects.filter(  # pylint: disable=no-member
+        subtask_id=data.subtask_id, clock_in__gte=cutoff
+    ).order_by("-clock_in")
+    return time_entries

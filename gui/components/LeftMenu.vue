@@ -33,7 +33,7 @@
       <v-list>
         <v-list-item
           prepend-icon="mdi-logout"
-          title="Salir"
+          title="Logout"
           value="logout"
           @click="logout"
           v-if="auth.isAuthenticated.value"></v-list-item>
