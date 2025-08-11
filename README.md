@@ -74,7 +74,7 @@ then we need to run in a first terminal:
 celery -A ticktask worker -l info
 ```
 
-and in a diferent terminal:
+and in a different terminal:
 
 ```sh
 celery -A ticktask worker -l info
