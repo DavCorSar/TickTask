@@ -16,6 +16,8 @@ from datetime import timedelta
 
 from decouple import config
 
+from celery.schedules import crontab
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -149,4 +151,14 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "ALGORITHM": "HS256",
+}
+
+CELERY_BROKER_URL = "redis://localhost:6379/0"
+CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+
+CELERY_BEAT_SCHEDULE = {
+    "autoclose-every-5-min": {
+        "task": "ticktask.tasks.autoclose_old_entries",
+        "schedule": crontab(minute="*/5"),
+    },
 }
