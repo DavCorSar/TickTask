@@ -244,6 +244,16 @@
 
   async function clockIn() {
     try {
+      const existing = await $api("/ticktask/user/get-clocked-in-time-entry/", {
+        method: "GET",
+      });
+
+      if (existing) {
+        alert(
+          "You have an already active Task. Please, close it before starting a new one."
+        );
+        return;
+      }
       const response = await $api("/ticktask/user/clock-in/", {
         method: "POST",
         body: {
