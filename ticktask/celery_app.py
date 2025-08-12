@@ -1,4 +1,7 @@
-# ticktask/celery.py
+"""
+Definition of the settings of my celery app
+"""
+
 import os
 from celery import Celery
 
