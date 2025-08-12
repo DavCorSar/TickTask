@@ -77,5 +77,5 @@ celery -A ticktask worker -l info
 and in a different terminal:
 
 ```sh
-celery -A ticktask worker -l info
+celery -A ticktask beat -l info
 ```
