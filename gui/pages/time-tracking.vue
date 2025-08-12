@@ -216,6 +216,7 @@
         isClockedIn.value = true;
         clockInTime.value = new Date(entry.clock_in);
         startClockInTimer();
+        fetchRecentTimeEntries(activeSubTask.value.id);
       }
     } catch (error) {
       console.error("Error fetching tasks:", error);
@@ -239,13 +240,20 @@
   function selectSubtask(subtask, task) {
     selectedTask.value = task;
     selectedSubtask.value = subtask;
-
-    fetchRecentTimeEntries(subtask.id);
   }
 
   async function clockIn() {
-    // TODO(David): Don't let to clock-in if there are another time entry that has not been closed
     try {
+      const existing = await $api("/ticktask/user/get-clocked-in-time-entry/", {
+        method: "GET",
+      });
+
+      if (existing) {
+        alert(
+          "You have an already active Task. Please, close it before starting a new one."
+        );
+        return;
+      }
       const response = await $api("/ticktask/user/clock-in/", {
         method: "POST",
         body: {
@@ -266,7 +274,6 @@
   }
 
   async function clockOut() {
-    // TODO(David): Clock-out automatically when more than 12 hours have passed
     try {
       console.log("entry id: ", activeTimeEntryId.value);
       const response = await $api("/ticktask/user/clock-out/", {
@@ -297,7 +304,6 @@
       });
 
       recentTimeEntries.value = response;
-      console.log("HERE: ", recentTimeEntries.value);
     } catch (err) {
       console.error("Error fetching recent time entries:", err);
       recentTimeEntries.value = [];
