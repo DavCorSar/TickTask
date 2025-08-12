@@ -266,7 +266,6 @@
   }
 
   async function clockOut() {
-    // TODO(David): Clock-out automatically when more than 12 hours have passed
     try {
       console.log("entry id: ", activeTimeEntryId.value);
       const response = await $api("/ticktask/user/clock-out/", {
