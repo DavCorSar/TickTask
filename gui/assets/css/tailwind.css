@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 247 248 251;
+    --foreground: 15 23 42;
+
+    --card: 255 255 255;
+    --card-foreground: 15 23 42;
+
+    --muted: 241 245 249;
+    --muted-foreground: 100 116 139;
+
+    --border: 226 232 240;
+    --input: 226 232 240;
+    --ring: 0 124 191;
+
+    --primary: 0 124 191;
+    --primary-foreground: 255 255 255;
+
+    --accent: 94 166 17;
+    --accent-foreground: 255 255 255;
+
+    --danger: 211 15 75;
+    --danger-foreground: 255 255 255;
+  }
+
+  .dark {
+    --background: 9 13 24;
+    --foreground: 226 232 240;
+
+    --card: 20 27 43;
+    --card-foreground: 226 232 240;
+
+    --muted: 30 41 59;
+    --muted-foreground: 148 163 184;
+
+    --border: 39 51 73;
+    --input: 39 51 73;
+    --ring: 56 169 226;
+
+    --primary: 45 156 219;
+    --primary-foreground: 255 255 255;
+
+    --accent: 124 191 38;
+    --accent-foreground: 12 20 4;
+
+    --danger: 244 63 110;
+    --danger-foreground: 255 255 255;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+
+  /* Subtle, themed scrollbars */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-muted-foreground/30;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+}
+
+@layer components {
+  .card-surface {
+    @apply rounded-2xl border border-border bg-card text-card-foreground shadow-soft;
+  }
+}

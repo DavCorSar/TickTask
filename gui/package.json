@@ -1,5 +1,5 @@
 {
-  "name": "nuxt-app",
+  "name": "ticktask-gui",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,9 +10,15 @@
     "postinstall": "nuxt prepare"
   },
   "dependencies": {
+    "@nuxt/icon": "^1.10.3",
+    "jwt-decode": "^4.0.0",
     "nuxt": "^3.17.5",
     "vue": "^3.5.16",
-    "vue-router": "^4.5.1",
-    "vuetify-nuxt-module": "^0.18.7"
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@iconify-json/lucide": "^1.2.30",
+    "@nuxtjs/tailwindcss": "^6.13.1",
+    "tailwindcss": "^3.4.17"
   }
 }
