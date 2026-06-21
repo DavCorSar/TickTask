@@ -154,9 +154,9 @@
                   :key="entry.id"
                   class="flex items-center justify-between rounded-lg bg-muted px-3 py-2 text-sm">
                   <span
-                    >{{ formatTime(entry.clock_in) }} –
+                    >{{ formatClock(entry.clock_in) }} –
                     {{
-                      entry.clock_out ? formatTime(entry.clock_out) : "ongoing"
+                      entry.clock_out ? formatClock(entry.clock_out) : "ongoing"
                     }}</span
                   >
                   <Icon
@@ -366,25 +366,8 @@
   function startClockInTimer() {
     if (clockInterval) clearInterval(clockInterval);
     clockInterval = setInterval(() => {
-      const diff = new Date() - clockInTime.value;
-      const hours = String(Math.floor(diff / 3600000)).padStart(2, "0");
-      const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(
-        2,
-        "0",
-      );
-      const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(
-        2,
-        "0",
-      );
-      clockInDuration.value = `${hours}:${minutes}:${seconds}`;
+      clockInDuration.value = formatDuration(new Date() - clockInTime.value);
     }, 1000);
-  }
-
-  function formatTime(value) {
-    return new Date(value).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
   }
 
   function openAddTaskDialog() {
