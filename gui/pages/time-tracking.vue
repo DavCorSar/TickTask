@@ -1,164 +1,219 @@
 <template>
-  <v-container>
-    <v-card class="pa-4" elevation="2">
-      <v-card-title>Select a Task</v-card-title>
+  <div class="mx-auto max-w-6xl space-y-6">
+    <div>
+      <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">
+        Time tracking
+      </h1>
+      <p class="mt-1 text-muted-foreground">
+        Pick a subtask and clock in to start tracking.
+      </p>
+    </div>
 
-      <v-data-table
-        :headers="taskHeaders"
-        :items="tasks"
-        item-value="id"
-        :items-per-page="5"
-        :hide-default-footer="true"
-        :loading="loadingTasks"
-        class="mb-6 rounded-lg elevation-1"
-        dense
-        hover
-        show-expand
-        expand-on-click
-        v-model:expanded="expanded">
-        <template #item.name="{ item }">
-          <span
-            @click="selectTask(item)"
-            :class="{
-              'text-blue-darken-3 font-weight-bold':
-                selectedTask?.id === item.id && selectSubtask,
-            }">
-            {{ item.name }}
-          </span>
-        </template>
+    <div class="grid gap-6 lg:grid-cols-5">
+      <!-- Task / subtask picker -->
+      <div class="lg:col-span-3">
+        <UiCard title="Your tasks">
+          <template #actions>
+            <UiButton size="sm" icon="lucide:plus" @click="openAddTaskDialog"
+              >Add task</UiButton
+            >
+          </template>
 
-        <template #expanded-row="{ item }">
-          <tr>
-            <td :colspan="taskHeaders.length">
-              <v-data-table
-                :headers="subtaskHeaders"
-                :items="item.subtasks"
-                item-value="id"
-                dense
-                hide-default-footer
-                class="rounded-lg elevation-0">
-                <template #item.name="{ item: subtask }">
-                  <span
-                    @click.stop="selectSubtask(subtask, item)"
-                    :class="{
-                      'text-green-darken-3 font-weight-bold':
-                        selectedSubtask?.id === subtask.id &&
-                        selectedTask?.id === item.id,
-                    }"
-                    style="cursor: pointer">
-                    {{ subtask.name }}
-                  </span>
-                </template>
+          <div
+            v-if="loadingTasks"
+            class="flex items-center justify-center py-12 text-muted-foreground">
+            <Icon name="lucide:loader-circle" class="size-6 animate-spin" />
+          </div>
 
-                <template #body.append>
-                  <tr>
-                    <td :colspan="subtaskHeaders.length">
-                      <v-btn
-                        color="primary"
-                        @click="openAddSubTaskDialog(item)"
-                        block>
-                        ➕ Add Subtask
-                      </v-btn>
-                    </td>
-                  </tr>
-                </template>
-              </v-data-table>
-            </td>
-          </tr>
-        </template>
-
-        <template #body.append>
-          <tr>
-            <td :colspan="taskHeaders.length">
-              <v-btn
-                color="primary"
-                @click="openAddTaskDialog"
-                variant="flat"
-                block>
-                ➕ Add Task
-              </v-btn>
-            </td>
-          </tr>
-        </template>
-      </v-data-table>
-
-      <v-row v-if="isClockedIn && clockInTime" class="mt-2" justify="center">
-        <v-col cols="12" class="text-center">
-          <v-alert type="success" variant="tonal">
+          <div
+            v-else-if="!tasks.length"
+            class="flex flex-col items-center gap-3 py-12 text-center">
+            <div
+              class="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
+              <Icon name="lucide:folder-plus" class="size-6" />
+            </div>
             <div>
-              📝 <strong>Task:</strong> {{ activeTask?.name || "N/A" }}<br />
-              🧩 <strong>Subtask:</strong> {{ activeSubTask?.name || "N/A"
-              }}<br />
-              ⏰ <strong>Clocked in at:</strong>
-              {{ clockInTime.toLocaleTimeString() }}<br />
-              ⏳ <strong>Time elapsed:</strong> {{ clockInDuration }}
+              <p class="font-medium">No tasks yet</p>
+              <p class="text-sm text-muted-foreground">
+                Create your first task to start tracking time.
+              </p>
+            </div>
+            <UiButton size="sm" icon="lucide:plus" @click="openAddTaskDialog"
+              >Add task</UiButton
+            >
+          </div>
+
+          <ul v-else class="space-y-2">
+            <li
+              v-for="task in tasks"
+              :key="task.id"
+              class="overflow-hidden rounded-xl border border-border">
+              <button
+                class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted"
+                @click="toggleExpand(task.id)">
+                <Icon
+                  name="lucide:chevron-right"
+                  class="size-4 text-muted-foreground transition-transform"
+                  :class="{ 'rotate-90': isExpanded(task.id) }" />
+                <Icon name="lucide:folder" class="size-[18px] text-primary" />
+                <span class="flex-1 font-medium">{{ task.name }}</span>
+                <span
+                  class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  {{ task.subtasks.length }} subtask{{
+                    task.subtasks.length === 1 ? "" : "s"
+                  }}
+                </span>
+              </button>
+
+              <div
+                v-if="isExpanded(task.id)"
+                class="border-t border-border bg-background/40 px-3 py-2">
+                <button
+                  v-for="subtask in task.subtasks"
+                  :key="subtask.id"
+                  class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+                  :class="
+                    isSelected(task, subtask)
+                      ? 'bg-primary/10 text-primary'
+                      : 'hover:bg-muted'
+                  "
+                  @click="selectSubtask(subtask, task)">
+                  <Icon
+                    :name="
+                      isSelected(task, subtask)
+                        ? 'lucide:circle-check-big'
+                        : 'lucide:circle'
+                    "
+                    class="size-[18px] shrink-0" />
+                  <span class="flex-1">
+                    <span class="font-medium">{{ subtask.name }}</span>
+                    <span
+                      v-if="subtask.description"
+                      class="ml-2 text-muted-foreground"
+                      >{{ subtask.description }}</span
+                    >
+                  </span>
+                </button>
+
+                <p
+                  v-if="!task.subtasks.length"
+                  class="px-3 py-2 text-sm text-muted-foreground">
+                  No subtasks yet.
+                </p>
+
+                <UiButton
+                  variant="ghost"
+                  size="sm"
+                  icon="lucide:plus"
+                  class="mt-1 w-full justify-start"
+                  @click="openAddSubTaskDialog(task)">
+                  Add subtask
+                </UiButton>
+              </div>
+            </li>
+          </ul>
+        </UiCard>
+      </div>
+
+      <!-- Tracker -->
+      <div class="lg:col-span-2">
+        <UiCard title="Tracker" class="lg:sticky lg:top-6">
+          <!-- Active session -->
+          <div v-if="isClockedIn && clockInTime" class="space-y-5">
+            <div class="rounded-2xl bg-accent/10 p-5 text-center">
+              <p class="text-sm text-muted-foreground">Tracking</p>
+              <p class="mt-1 font-semibold">{{ activeTask?.name }}</p>
+              <p class="text-sm text-muted-foreground">
+                {{ activeSubTask?.name }}
+              </p>
+              <p
+                class="mt-4 font-mono text-4xl font-bold tabular-nums tracking-tight">
+                {{ clockInDuration }}
+              </p>
+              <p class="mt-1 text-xs text-muted-foreground">
+                Started at {{ clockInTime.toLocaleTimeString() }}
+              </p>
             </div>
 
-            <div v-if="recentTimeEntries.length" class="mt-3">
-              <strong>⏱ Latest time entries (24h):</strong>
-              <ul class="mt-1">
-                <li v-for="entry in recentTimeEntries" :key="entry.id">
-                  {{ new Date(entry.clock_in).toLocaleTimeString() }}
-                  -
-                  {{
-                    entry.clock_out
-                      ? new Date(entry.clock_out).toLocaleTimeString()
-                      : "Ongoing"
-                  }}
+            <UiButton
+              variant="danger"
+              block
+              size="lg"
+              icon="lucide:square"
+              @click="clockOut">
+              Clock out
+            </UiButton>
+
+            <div v-if="recentTimeEntries.length">
+              <p class="mb-2 text-sm font-medium text-muted-foreground">
+                Recent entries (24h)
+              </p>
+              <ul class="space-y-1.5">
+                <li
+                  v-for="entry in recentTimeEntries"
+                  :key="entry.id"
+                  class="flex items-center justify-between rounded-lg bg-muted px-3 py-2 text-sm">
+                  <span
+                    >{{ formatTime(entry.clock_in) }} –
+                    {{
+                      entry.clock_out ? formatTime(entry.clock_out) : "ongoing"
+                    }}</span
+                  >
+                  <Icon
+                    :name="
+                      entry.clock_out ? 'lucide:check' : 'lucide:loader-circle'
+                    "
+                    class="size-4 text-muted-foreground"
+                    :class="{ 'animate-spin': !entry.clock_out }" />
                 </li>
               </ul>
             </div>
-            <div v-else class="mt-3">
-              <em>No time entries in the last 24 hours.</em>
-            </div>
-          </v-alert>
-        </v-col>
-      </v-row>
-      <v-row
-        v-if="selectedTask && selectedSubtask"
-        class="mt-6"
-        justify="center">
-        <v-btn
-          color="success"
-          class="ma-2"
-          :disabled="!canClockIn"
-          @click="clockIn">
-          ✅ Clock In
-        </v-btn>
-        <v-btn
-          color="error"
-          class="ma-2"
-          :disabled="!canClockOut"
-          @click="clockOut">
-          ❌ Clock Out
-        </v-btn>
-      </v-row>
-    </v-card>
-    <v-row v-if="selectedTask && selectedSubtask" class="mt-6" justify="center">
-      <v-col cols="12" class="text-center">
-        <v-alert type="info" variant="tonal">
-          <strong>Selected Task:</strong> {{ selectedTask.name }}<br />
-          <strong>Selected Subtask:</strong> {{ selectedSubtask.name }}
-        </v-alert>
-      </v-col>
-    </v-row>
-  </v-container>
-  <AddTaskDialog
-    v-model="dialogAddTaskVisible"
-    @task-created="handleTaskCreated" />
+          </div>
 
-  <AddSubTaskDialog
-    v-if="currentTaskForSubtask"
-    v-model="dialogAddSubTaskVisible"
-    :task-id="currentTaskForSubtask.id"
-    @subtask-created="handleSubTaskCreated" />
+          <!-- Idle -->
+          <div v-else class="space-y-5">
+            <div
+              v-if="selectedSubtask"
+              class="rounded-2xl bg-muted p-5 text-center">
+              <p class="text-sm text-muted-foreground">Selected</p>
+              <p class="mt-1 font-semibold">{{ selectedTask?.name }}</p>
+              <p class="text-sm text-muted-foreground">
+                {{ selectedSubtask.name }}
+              </p>
+            </div>
+            <div
+              v-else
+              class="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border p-8 text-center text-muted-foreground">
+              <Icon name="lucide:mouse-pointer-click" class="size-7" />
+              <p class="text-sm">Select a subtask to begin.</p>
+            </div>
+
+            <UiButton
+              block
+              size="lg"
+              icon="lucide:play"
+              :disabled="!canClockIn"
+              @click="clockIn">
+              Clock in
+            </UiButton>
+          </div>
+        </UiCard>
+      </div>
+    </div>
+
+    <AddTaskDialog
+      v-model="dialogAddTaskVisible"
+      @task-created="handleTaskCreated" />
+    <AddSubTaskDialog
+      v-if="currentTaskForSubtask"
+      v-model="dialogAddSubTaskVisible"
+      :task-id="currentTaskForSubtask.id"
+      @subtask-created="handleSubTaskCreated" />
+  </div>
 </template>
 
 <script setup>
-  // TODO(David): Allow to delete tasks and subtasks
   import { ref, computed, onMounted, onBeforeUnmount } from "vue";
-  import AddTaskDialog from "~/components/AddTaskDialog.vue";
-  import AddSubTaskDialog from "~/components/AddSubTaskDialog.vue";
 
   definePageMeta({
     middleware: "auth",
@@ -169,18 +224,14 @@
   const { $api } = useNuxtApp();
 
   const tasks = ref([]);
-  const taskHeaders = [{ text: "Task", value: "name" }];
-  const subtaskHeaders = [{ text: "Subtask", value: "name" }];
+  const loadingTasks = ref(false);
+  const expanded = ref([]);
 
   const selectedTask = ref(null);
   const selectedSubtask = ref(null);
   const activeTask = ref(null);
   const activeSubTask = ref(null);
   const isClockedIn = ref(false);
-  const loadingTasks = ref(false);
-  const dialogAddTaskVisible = ref(false);
-  const dialogAddSubTaskVisible = ref(false);
-  const currentTaskForSubtask = ref(null);
 
   const clockInTime = ref(null);
   const clockInDuration = ref("00:00:00");
@@ -188,35 +239,34 @@
   const activeTimeEntryId = ref(null);
   const recentTimeEntries = ref([]);
 
-  const expanded = ref([]);
+  const dialogAddTaskVisible = ref(false);
+  const dialogAddSubTaskVisible = ref(false);
+  const currentTaskForSubtask = ref(null);
 
   onMounted(async () => {
     loadingTasks.value = true;
     try {
-      const response = await $api("/ticktask/user/get-tasks-and-subtasks/", {
+      tasks.value = await $api("/ticktask/user/get-tasks-and-subtasks/", {
         method: "GET",
       });
-      tasks.value = response;
 
-      const timeEntryResponse = await $api(
-        "/ticktask/user/get-clocked-in-time-entry/",
-        { method: "GET" }
-      );
-
-      if (timeEntryResponse) {
-        const task = timeEntryResponse;
-        const subtask = task.subtasks[0];
+      const active = await $api("/ticktask/user/get-clocked-in-time-entry/", {
+        method: "GET",
+      });
+      if (active) {
+        const subtask = active.subtasks[0];
         const entry = subtask.time_entries[0];
 
-        selectedTask.value = task;
-        activeTask.value = task;
+        selectedTask.value = active;
+        activeTask.value = active;
         selectedSubtask.value = subtask;
         activeSubTask.value = subtask;
         activeTimeEntryId.value = entry.id;
         isClockedIn.value = true;
         clockInTime.value = new Date(entry.clock_in);
+        expanded.value = [active.id];
         startClockInTimer();
-        fetchRecentTimeEntries(activeSubTask.value.id);
+        fetchRecentTimeEntries(subtask.id);
       }
     } catch (error) {
       console.error("Error fetching tasks:", error);
@@ -226,15 +276,24 @@
   });
 
   const canClockIn = computed(
-    () => selectedTask.value && selectedSubtask.value && !isClockedIn.value
-  );
-  const canClockOut = computed(
-    () => selectedTask.value && selectedSubtask.value && isClockedIn.value
+    () => !!selectedTask.value && !!selectedSubtask.value && !isClockedIn.value,
   );
 
-  function selectTask(task) {
-    selectedTask.value = task;
-    selectedSubtask.value = null;
+  function isExpanded(taskId) {
+    return expanded.value.includes(taskId);
+  }
+
+  function toggleExpand(taskId) {
+    expanded.value = isExpanded(taskId)
+      ? expanded.value.filter((id) => id !== taskId)
+      : [...expanded.value, taskId];
+  }
+
+  function isSelected(task, subtask) {
+    return (
+      selectedTask.value?.id === task.id &&
+      selectedSubtask.value?.id === subtask.id
+    );
   }
 
   function selectSubtask(subtask, task) {
@@ -247,18 +306,16 @@
       const existing = await $api("/ticktask/user/get-clocked-in-time-entry/", {
         method: "GET",
       });
-
       if (existing) {
         alert(
-          "You have an already active Task. Please, close it before starting a new one."
+          "You already have an active task. Please close it before starting a new one.",
         );
         return;
       }
+
       const response = await $api("/ticktask/user/clock-in/", {
         method: "POST",
-        body: {
-          subtask_id: selectedSubtask.value.id,
-        },
+        body: { subtask_id: selectedSubtask.value.id },
       });
 
       isClockedIn.value = true;
@@ -275,12 +332,9 @@
 
   async function clockOut() {
     try {
-      console.log("entry id: ", activeTimeEntryId.value);
-      const response = await $api("/ticktask/user/clock-out/", {
+      await $api("/ticktask/user/clock-out/", {
         method: "POST",
-        body: {
-          entity_id: activeTimeEntryId.value,
-        },
+        body: { entity_id: activeTimeEntryId.value },
       });
 
       isClockedIn.value = false;
@@ -291,6 +345,7 @@
       activeTimeEntryId.value = null;
       activeTask.value = null;
       activeSubTask.value = null;
+      recentTimeEntries.value = [];
     } catch (err) {
       console.error("Error during clock out:", err);
     }
@@ -298,12 +353,10 @@
 
   async function fetchRecentTimeEntries(subtaskId) {
     try {
-      const response = await $api("/ticktask/user/get-time-entries/", {
+      recentTimeEntries.value = await $api("/ticktask/user/get-time-entries/", {
         method: "POST",
         body: { subtask_id: subtaskId, last_hours: 24 },
       });
-
-      recentTimeEntries.value = response;
     } catch (err) {
       console.error("Error fetching recent time entries:", err);
       recentTimeEntries.value = [];
@@ -312,32 +365,36 @@
 
   function startClockInTimer() {
     if (clockInterval) clearInterval(clockInterval);
-
     clockInterval = setInterval(() => {
-      const now = new Date();
-      const diff = now - clockInTime.value; // en ms
-
+      const diff = new Date() - clockInTime.value;
       const hours = String(Math.floor(diff / 3600000)).padStart(2, "0");
       const minutes = String(Math.floor((diff % 3600000) / 60000)).padStart(
         2,
-        "0"
+        "0",
       );
       const seconds = String(Math.floor((diff % 60000) / 1000)).padStart(
         2,
-        "0"
+        "0",
       );
-
       clockInDuration.value = `${hours}:${minutes}:${seconds}`;
     }, 1000);
   }
 
-  const openAddTaskDialog = () => {
-    dialogAddTaskVisible.value = true;
-  };
+  function formatTime(value) {
+    return new Date(value).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
 
-  const handleTaskCreated = (task) => {
-    tasks.value.push(task);
-  };
+  function openAddTaskDialog() {
+    dialogAddTaskVisible.value = true;
+  }
+
+  function handleTaskCreated(task) {
+    tasks.value.push({ ...task, subtasks: task.subtasks ?? [] });
+    expanded.value = [...expanded.value, task.id];
+  }
 
   function openAddSubTaskDialog(task) {
     currentTaskForSubtask.value = task;
@@ -346,11 +403,13 @@
 
   function handleSubTaskCreated(newSubtask) {
     const task = tasks.value.find(
-      (t) => t.id === currentTaskForSubtask.value.id
+      (t) => t.id === currentTaskForSubtask.value.id,
     );
-    if (task) {
-      task.subtasks.push(newSubtask);
-    }
+    if (task)
+      task.subtasks.push({
+        ...newSubtask,
+        time_entries: newSubtask.time_entries ?? [],
+      });
   }
 
   onBeforeUnmount(() => {

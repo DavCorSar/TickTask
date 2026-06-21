@@ -1,45 +1,75 @@
 <template>
-  <v-container class="fill-height d-flex justify-center align-center">
-    <v-card class="pa-6" width="400" elevation="16">
-      <v-card-title class="text-center">LogIn</v-card-title>
+  <div class="flex min-h-screen items-center justify-center p-4">
+    <!-- Decorative gradient -->
+    <div
+      class="pointer-events-none absolute inset-x-0 top-0 -z-10 flex justify-center blur-3xl"
+      aria-hidden="true">
+      <div
+        class="h-64 w-[32rem] bg-gradient-to-tr from-primary/25 to-accent/15 opacity-70"></div>
+    </div>
 
-      <v-card-text>
-        <v-form @submit.prevent="login">
-          <v-text-field
+    <div class="absolute right-4 top-4">
+      <UiThemeToggle />
+    </div>
+
+    <div class="w-full max-w-sm">
+      <div class="mb-8 flex flex-col items-center text-center">
+        <div
+          class="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
+          <Icon name="lucide:timer" class="size-6" />
+        </div>
+        <h1 class="mt-4 text-2xl font-bold tracking-tight">Welcome back</h1>
+        <p class="mt-1 text-sm text-muted-foreground">
+          Log in to your TickTask account
+        </p>
+      </div>
+
+      <div class="card-surface p-6 shadow-card">
+        <form class="space-y-4" @submit.prevent="login">
+          <UiInput
             v-model="username"
-            label="User"
-            variant="underlined"
-            prepend-inner-icon="mdi-account"
-            autofocus></v-text-field>
+            label="Username"
+            placeholder="your username"
+            icon="lucide:user"
+            autocomplete="username"
+            autofocus />
 
-          <v-text-field
+          <UiInput
             v-model="password"
             label="Password"
-            :type="showPassword ? 'text' : 'password'"
-            variant="underlined"
-            prepend-inner-icon="mdi-key-variant"
-            :append-inner-icon="showPassword ? 'mdi-eye' : 'mdi-eye-off'"
-            @click:append-inner="showPassword = !showPassword"></v-text-field>
+            type="password"
+            placeholder="••••••••"
+            icon="lucide:lock"
+            autocomplete="current-password"
+            revealable
+            @enter="login" />
 
-          <v-btn color="primary" block type="submit" :loading="loading">
-            Access
-          </v-btn>
+          <UiAlert v-if="errorMessage" variant="danger">{{
+            errorMessage
+          }}</UiAlert>
 
-          <v-btn color="primary" block variant="text" class="mt-4" to="/">
-            Return
-          </v-btn>
-        </v-form>
+          <UiButton type="submit" block size="lg" :loading="loading"
+            >Log in</UiButton
+          >
+        </form>
+      </div>
 
-        <v-alert v-if="errorMessage" type="error" class="mt-3" dense>
-          {{ errorMessage }}
-        </v-alert>
-      </v-card-text>
-    </v-card>
-  </v-container>
+      <div class="mt-6 text-center">
+        <NuxtLink
+          to="/"
+          class="text-sm text-muted-foreground transition-colors hover:text-foreground">
+          ← Back to home
+        </NuxtLink>
+      </div>
+    </div>
+  </div>
 </template>
 
 <script setup>
+  import { ref } from "vue";
   import { useRouter } from "vue-router";
+
+  definePageMeta({ layout: "blank" });
 
   const auth = useAuth();
   const router = useRouter();
@@ -47,28 +77,25 @@
   const username = ref("");
   const password = ref("");
   const errorMessage = ref("");
-
-  const showPassword = ref(false);
-
   const loading = ref(false);
 
   const login = async () => {
+    if (loading.value) return;
     errorMessage.value = "";
-    loading.value = true;
 
     if (!username.value || !password.value) {
-      errorMessage.value = "You must introduce user and password";
-    } else {
-      try {
-        const success = await auth.login(username.value, password.value);
-        if (success) {
-          router.push("/home");
-        }
-      } catch (error) {
-        errorMessage.value = error.message || "Incorrect user or password";
-      }
+      errorMessage.value = "Please enter your username and password.";
+      return;
     }
 
-    loading.value = false;
+    loading.value = true;
+    try {
+      const success = await auth.login(username.value, password.value);
+      if (success) router.push("/home");
+    } catch (error) {
+      errorMessage.value = error.message || "Incorrect username or password.";
+    } finally {
+      loading.value = false;
+    }
   };
 </script>
