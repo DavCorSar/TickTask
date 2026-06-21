@@ -1,36 +1,29 @@
 <template>
-  <v-dialog v-model="dialog" max-width="600px" persistent>
-    <v-card>
-      <v-form ref="formRef" @submit.prevent="submitForm">
-        <v-toolbar density="compact" class="bg-transparent">
-          <v-toolbar-title>Crear nueva subtarea</v-toolbar-title>
-          <v-btn icon="mdi-close" @click="dialog = false"></v-btn>
-        </v-toolbar>
+  <UiModal v-model="dialog" title="New subtask">
+    <form id="add-subtask-form" class="space-y-4" @submit.prevent="submitForm">
+      <UiInput
+        v-model="subtaskName"
+        label="Subtask name"
+        placeholder="e.g. Design the homepage"
+        icon="lucide:list-todo"
+        :error="nameError"
+        autofocus />
 
-        <v-card-text>
-          <v-text-field
-            v-model="subtaskName"
-            label="Nombre de la subtarea"
-            :rules="[(v) => !!v || 'El nombre es obligatorio']"
-            variant="underlined"
-            dense />
+      <UiTextarea
+        v-model="subtaskDescription"
+        label="Description"
+        placeholder="What does this subtask involve?"
+        :rows="3"
+        :error="descError" />
+    </form>
 
-          <v-textarea
-            v-model="subtaskDescription"
-            label="Descripción"
-            :rules="[(v) => !!v || 'La descripción es obligatoria']"
-            variant="underlined"
-            rows="3"
-            dense />
-        </v-card-text>
-
-        <v-card-actions>
-          <v-spacer />
-          <v-btn color="primary" variant="flat" type="submit"> Crear </v-btn>
-        </v-card-actions>
-      </v-form>
-    </v-card>
-  </v-dialog>
+    <template #footer>
+      <UiButton variant="ghost" @click="dialog = false">Cancel</UiButton>
+      <UiButton type="submit" form="add-subtask-form" :loading="loading"
+        >Create subtask</UiButton
+      >
+    </template>
+  </UiModal>
 </template>
 
 <script setup>
@@ -38,7 +31,7 @@
 
   const props = defineProps({
     modelValue: Boolean,
-    taskId: Number, // Tarea asociada
+    taskId: Number,
   });
 
   const emit = defineEmits(["update:modelValue", "subtask-created"]);
@@ -46,31 +39,34 @@
   const { $api } = useNuxtApp();
 
   const dialog = ref(props.modelValue);
-  const formRef = ref(null);
   const subtaskName = ref("");
   const subtaskDescription = ref("");
+  const nameError = ref("");
+  const descError = ref("");
+  const loading = ref(false);
 
   watch(
     () => props.modelValue,
     (val) => {
       dialog.value = val;
-    }
+      if (val) resetForm();
+    },
   );
 
-  watch(dialog, (val) => {
-    emit("update:modelValue", val);
-  });
+  watch(dialog, (val) => emit("update:modelValue", val));
 
   async function submitForm() {
-    const valid = await formRef.value.validate();
-    if (!valid) return;
+    if (loading.value) return;
+    nameError.value = "";
+    descError.value = "";
 
+    if (!subtaskName.value.trim()) nameError.value = "The name is required.";
+    if (!subtaskDescription.value.trim())
+      descError.value = "The description is required.";
+    if (nameError.value || descError.value) return;
+
+    loading.value = true;
     try {
-      console.log("Subtask: ", {
-        name: subtaskName.value.trim(),
-        description: subtaskDescription.value.trim(),
-        task_id: props.taskId,
-      });
       const response = await $api("/ticktask/user/create-subtask/", {
         method: "POST",
         body: {
@@ -81,16 +77,19 @@
       });
 
       emit("subtask-created", response);
-      resetForm();
       dialog.value = false;
-    } catch (error) {
-      console.error("Error al crear subtarea:", error);
+    } catch (err) {
+      nameError.value = "Couldn't create the subtask. Does it already exist?";
+      console.error("Error creating subtask:", err);
+    } finally {
+      loading.value = false;
     }
   }
 
   function resetForm() {
     subtaskName.value = "";
     subtaskDescription.value = "";
-    formRef.value.resetValidation();
+    nameError.value = "";
+    descError.value = "";
   }
 </script>

@@ -1,10 +1,7 @@
 <template>
-  <v-app>
-    <v-main>
-      <NuxtPage />
-      <!-- Aquí se cargarán las páginas dinámicamente -->
-    </v-main>
-  </v-app>
+  <div class="min-h-screen bg-background">
+    <slot />
+  </div>
 </template>
 
 <script setup></script>

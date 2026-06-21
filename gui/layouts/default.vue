@@ -1,12 +1,10 @@
 <template>
-  <v-app>
+  <div class="flex min-h-screen flex-col bg-background">
     <Header />
-    <v-main>
-      <NuxtPage />
-      <!-- Aquí se cargarán las páginas dinámicamente -->
-    </v-main>
-    <!-- <Footer /> -->
-  </v-app>
+    <main class="flex-1">
+      <slot />
+    </main>
+  </div>
 </template>
 
 <script setup></script>
