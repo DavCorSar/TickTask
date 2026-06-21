@@ -72,9 +72,12 @@ export const useAuth = () => {
     const timeLeft = decoded.exp - now;
 
     // Refrescar 30 segundos antes de que expire el token
-    setTimeout(async () => {
-      refresh();
-    }, (timeLeft - 30) * 1000);
+    setTimeout(
+      async () => {
+        refresh();
+      },
+      (timeLeft - 30) * 1000,
+    );
   };
 
   return {
