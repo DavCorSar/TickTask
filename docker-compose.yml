@@ -1,0 +1,75 @@
+# One command to run the whole stack:  docker compose up
+#
+#   redis     – Celery broker / result backend
+#   backend   – Django API (runs migrations on start), :8000
+#   worker    – Celery worker (runs the reminder + autoclose tasks)
+#   beat      – Celery beat (schedules them every minute)
+#   bot       – Telegram long-polling (account linking)
+#   frontend  – Nuxt dev server, :3000
+#
+# Fill in `.env` (TELEGRAM_BOT_TOKEN, TELEGRAM_BOT_USERNAME) first.
+
+# Shared config for every service that runs from the backend image.
+x-backend: &backend
+  build: .
+  env_file: .env
+  environment:
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+  volumes:
+    - .:/app
+    - backend-venv:/app/.venv # keep the image's Linux venv over the bind mount
+  depends_on:
+    - redis
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  backend:
+    <<: *backend
+    command: >
+      sh -c "uv run python ticktask/manage.py migrate &&
+             uv run python ticktask/manage.py runserver 0.0.0.0:8000"
+    ports:
+      - "8000:8000"
+
+  worker:
+    <<: *backend
+    command: uv run celery -A ticktask worker -l info
+    depends_on:
+      - redis
+      - backend
+
+  beat:
+    <<: *backend
+    # Write the scheduler state inside the container (not the bind-mounted repo).
+    command: uv run celery -A ticktask beat -l info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      - redis
+      - backend
+
+  bot:
+    <<: *backend
+    command: uv run python ticktask/manage.py run_telegram_bot
+    depends_on:
+      - backend
+
+  frontend:
+    build: ./gui
+    environment:
+      HOST: 0.0.0.0
+      PORT: "3000"
+      NUXT_PUBLIC_API_URL: http://localhost:8000/api
+    volumes:
+      - ./gui:/app
+      - frontend-node-modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+volumes:
+  backend-venv:
+  frontend-node-modules:
