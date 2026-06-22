@@ -189,6 +189,59 @@ def test_time_series_by_task_breakdown_sorted():
 
 
 @pytest.mark.django_db
+def test_time_series_per_task_series_aligns_with_buckets():
+    """Each task carries a per-bucket series aligned with the bucket axis."""
+    user = make_user()
+    subtask = make_subtask(user, "T", "s")
+    make_entry(subtask, datetime(2026, 3, 1, 9, tzinfo=timezone.utc),
+               datetime(2026, 3, 1, 10, tzinfo=timezone.utc))  # day 1: 1 h
+    make_entry(subtask, datetime(2026, 3, 3, 9, tzinfo=timezone.utc),
+               datetime(2026, 3, 3, 11, tzinfo=timezone.utc))  # day 3: 2 h
+
+    body = _series(
+        auth_client(user),
+        datetime(2026, 3, 1, 0, tzinfo=timezone.utc),
+        datetime(2026, 3, 3, 23, 59, tzinfo=timezone.utc),
+        bucket="day",
+    ).json()
+
+    assert [b["period_start"] for b in body["buckets"]] == [
+        "2026-03-01",
+        "2026-03-02",
+        "2026-03-03",
+    ]
+    assert len(body["by_task"]) == 1
+    # Series is aligned, in order, with the buckets above.
+    assert body["by_task"][0]["series"] == [1.0, 0.0, 2.0]
+
+
+@pytest.mark.django_db
+def test_time_series_includes_tasks_without_activity():
+    """Tasks with no tracked time in the range still appear, flat at zero."""
+    user = make_user()
+    active = make_subtask(user, "Active", "s")
+    make_entry(active, datetime(2026, 3, 1, 9, tzinfo=timezone.utc),
+               datetime(2026, 3, 1, 10, tzinfo=timezone.utc))  # 1 h
+    # A second task with no entries at all in the range.
+    Task.objects.create(user=user, name="Idle")  # pylint: disable=no-member
+
+    body = _series(
+        auth_client(user),
+        datetime(2026, 3, 1, 0, tzinfo=timezone.utc),
+        datetime(2026, 3, 2, 0, tzinfo=timezone.utc),
+        bucket="day",
+    ).json()
+
+    by_name = {t["task_name"]: t for t in body["by_task"]}
+    assert set(by_name) == {"Active", "Idle"}
+    # The active task ranks first; the idle one is present but all zeros.
+    assert body["by_task"][0]["task_name"] == "Active"
+    assert by_name["Idle"]["hours"] == 0.0
+    assert set(by_name["Idle"]["series"]) == {0.0}
+    assert by_name["Idle"]["subtasks"] == []
+
+
+@pytest.mark.django_db
 def test_time_series_week_bucket_groups_same_week():
     """Entries in the same ISO week collapse into one weekly bucket."""
     user = make_user()
