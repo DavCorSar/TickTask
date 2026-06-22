@@ -42,11 +42,16 @@ class SubTaskHoursSchema(Schema):
 
 
 class TaskHoursSchema(Schema):
-    """Tracked hours for a task over the range, broken down by subtask."""
+    """
+    Tracked hours for a task over the range: the total, the per-bucket series
+    (aligned, in order, with the top-level ``buckets``) used to draw the task's
+    line, and the per-subtask breakdown.
+    """
 
     task_id: int
     task_name: str
     hours: float
+    series: list[float]
     subtasks: list[SubTaskHoursSchema]
 
 

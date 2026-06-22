@@ -28,7 +28,7 @@ except RuntimeError:
     pass
 
 from django.utils import timezone
-from ticktask.models import TimeEntry
+from ticktask.models import Task, TimeEntry
 
 dashboard_router = Router()
 
@@ -157,17 +157,28 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
         subtask = entry.subtask
         task = subtask.task
         task_agg = tasks.setdefault(
-            task.id, {"name": task.name, "total": timedelta(), "subtasks": {}}
+            task.id,
+            {"name": task.name, "total": timedelta(), "buckets": {}, "subtasks": {}},
         )
         task_agg["total"] += duration
+        task_agg["buckets"][key] = task_agg["buckets"].get(key, timedelta()) + duration
         sub_agg = task_agg["subtasks"].setdefault(
             subtask.id, {"name": subtask.name, "total": timedelta()}
         )
         sub_agg["total"] += duration
 
+    # Include every task the user owns, so a task with no tracked time in the
+    # range still shows up (as a flat zero line) instead of disappearing.
+    for task in Task.objects.filter(user=request.auth):  # pylint: disable=no-member
+        tasks.setdefault(
+            task.id,
+            {"name": task.name, "total": timedelta(), "buckets": {}, "subtasks": {}},
+        )
+
+    bucket_keys = list(_iter_buckets(start.date(), end.date(), bucket))
     buckets = [
         {"period_start": day, "hours": _hours(bucket_totals.get(day, timedelta()))}
-        for day in _iter_buckets(start.date(), end.date(), bucket)
+        for day in bucket_keys
     ]
 
     by_task = [
@@ -175,6 +186,9 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
             "task_id": task_id,
             "task_name": agg["name"],
             "hours": _hours(agg["total"]),
+            "series": [
+                _hours(agg["buckets"].get(day, timedelta())) for day in bucket_keys
+            ],
             "subtasks": [
                 {
                     "subtask_id": sub_id,
@@ -189,7 +203,8 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
             ],
         }
         for task_id, agg in sorted(
-            tasks.items(), key=lambda kv: kv[1]["total"], reverse=True
+            tasks.items(),
+            key=lambda kv: (-kv[1]["total"].total_seconds(), kv[1]["name"].lower()),
         )
     ]
 
