@@ -13,6 +13,7 @@ from ticktask.models import (
     SubTask,
     TimeEntry,
     CalendarEvent,
+    UserTelegramSettings,
 )
 
 
@@ -97,6 +98,22 @@ class CalendarEventAdmin(admin.ModelAdmin):
     ordering = ("-start",)
     list_select_related = ("user",)
     autocomplete_fields = ("user",)
+
+
+@admin.register(UserTelegramSettings)
+class UserTelegramSettingsAdmin(admin.ModelAdmin):
+    """Per-user Telegram reminder settings and link status."""
+
+    list_display = ("user", "connected", "enabled", "reminder_lead_minutes")
+    list_filter = ("enabled",)
+    search_fields = ("user__username", "chat_id")
+    list_select_related = ("user",)
+    autocomplete_fields = ("user",)
+
+    @admin.display(boolean=True, description="Connected")
+    def connected(self, obj):
+        """Whether a Telegram chat is linked."""
+        return obj.connected
 
 
 @admin.register(UserLoginRecord)

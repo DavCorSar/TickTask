@@ -153,12 +153,27 @@ SIMPLE_JWT = {
     "ALGORITHM": "HS256",
 }
 
-CELERY_BROKER_URL = "redis://localhost:6379/0"
-CELERY_RESULT_BACKEND = "redis://localhost:6379/0"
+CELERY_BROKER_URL = config("CELERY_BROKER_URL", default="redis://localhost:6379/0")
+CELERY_RESULT_BACKEND = config(
+    "CELERY_RESULT_BACKEND", default="redis://localhost:6379/0"
+)
 
 CELERY_BEAT_SCHEDULE = {
     "autoclose-every-5-min": {
         "task": "ticktask.tasks.autoclose_old_entries",
         "schedule": crontab(minute="*/5"),
     },
+    "event-reminders-every-min": {
+        "task": "ticktask.tasks.send_due_event_reminders",
+        "schedule": crontab(minute="*"),
+    },
 }
+
+# Telegram bot (calendar event reminders). The token and username are
+# per-deployment values kept in `.env` (never committed). Bot updates are
+# received via long-polling in development or a webhook in production, selected
+# with `TELEGRAM_USE_WEBHOOK`; the webhook path is guarded by a shared secret.
+TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="")
+TELEGRAM_BOT_USERNAME = config("TELEGRAM_BOT_USERNAME", default="")
+TELEGRAM_USE_WEBHOOK = config("TELEGRAM_USE_WEBHOOK", default=False, cast=bool)
+TELEGRAM_WEBHOOK_SECRET = config("TELEGRAM_WEBHOOK_SECRET", default="")

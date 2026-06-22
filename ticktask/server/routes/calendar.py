@@ -24,7 +24,7 @@ except RuntimeError:
     pass
 
 from django.db.models import Q
-from ticktask.models import CalendarEvent, TimeEntry
+from ticktask.models import CalendarEvent, TimeEntry, SentReminder
 
 calendar_router = Router()
 
@@ -172,6 +172,9 @@ def update_event(request, event_id: int, data: CalendarEventUpdateSchema):
 
     _validate_range(event.start, event.end)
     event.save()
+    # The event may have moved in time, so any reminders already sent for it no
+    # longer apply — drop them so the scheduler reconsiders the new times.
+    SentReminder.objects.filter(event=event).delete()  # pylint: disable=no-member
     return event
 
 
