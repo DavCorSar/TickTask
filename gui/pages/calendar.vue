@@ -103,12 +103,19 @@
 
           <div class="relative z-10 mt-1 space-y-1">
             <button
-              v-for="ev in (eventsByDay[dayKey(day)] || []).slice(0, 3)"
-              :key="ev.id"
-              class="flex w-full items-center rounded-md px-1.5 py-0.5 text-left text-[11px] font-medium text-white"
-              :style="{ backgroundColor: ev.color || '#007CBF' }"
-              @click.stop="openEdit(ev)">
-              <span class="truncate">{{ ev.title }}</span>
+              v-for="seg in (eventsByDay[dayKey(day)] || []).slice(0, 3)"
+              :key="seg.event.id"
+              class="flex min-h-[1.1rem] w-full items-center px-1.5 py-0.5 text-left text-[11px] font-medium text-white"
+              :class="[
+                seg.isStart || day.getDay() === 1 ? 'rounded-l-md' : '',
+                seg.isEnd || day.getDay() === 0 ? 'rounded-r-md' : '',
+              ]"
+              :style="{ backgroundColor: seg.event.color || '#007CBF' }"
+              :title="seg.event.title"
+              @click.stop="openEdit(seg.event)">
+              <span class="truncate">
+                {{ seg.isStart || day.getDay() === 1 ? seg.event.title : "" }}
+              </span>
             </button>
             <span
               v-if="(eventsByDay[dayKey(day)] || []).length > 3"
@@ -156,9 +163,9 @@
   const days = computed(() => buildMonthMatrix(cursor.value));
 
   const eventsByDay = computed(() => {
-    const map = {};
-    for (const ev of events.value) {
-      (map[dayKey(ev.start)] ||= []).push(ev);
+    const map = eventSegmentsByDay(events.value, days.value);
+    for (const key in map) {
+      map[key].sort((a, b) => new Date(a.event.start) - new Date(b.event.start));
     }
     return map;
   });

@@ -6,6 +6,7 @@ import {
   dayKey,
   isSameDay,
   isSameMonth,
+  eventSegmentsByDay,
 } from "../utils/calendar.js";
 
 describe("startOfMonth", () => {
@@ -53,5 +54,39 @@ describe("isSameDay / isSameMonth", () => {
   it("checks month membership", () => {
     expect(isSameMonth(new Date(2026, 6, 31), new Date(2026, 6, 1))).toBe(true);
     expect(isSameMonth(new Date(2026, 7, 1), new Date(2026, 6, 1))).toBe(false);
+  });
+});
+
+describe("eventSegmentsByDay", () => {
+  // Mon Mar 2 .. Sun Mar 8 2026 (local).
+  const week = Array.from({ length: 7 }, (_, i) => new Date(2026, 2, 2 + i));
+
+  it("places a single-day event only on its start day", () => {
+    const ev = { id: 1, start: new Date(2026, 2, 3, 9) };
+    const map = eventSegmentsByDay([ev], week);
+    expect(Object.keys(map)).toEqual(["2026-03-03"]);
+    expect(map["2026-03-03"][0]).toMatchObject({ isStart: true, isEnd: true });
+  });
+
+  it("spans every day a multi-day event covers, flagging start and end", () => {
+    const ev = { id: 2, start: new Date(2026, 2, 3, 9), end: new Date(2026, 2, 5, 11) };
+    const map = eventSegmentsByDay([ev], week);
+    expect(Object.keys(map).sort()).toEqual([
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+    ]);
+    expect(map["2026-03-03"][0]).toMatchObject({ isStart: true, isEnd: false });
+    expect(map["2026-03-04"][0]).toMatchObject({ isStart: false, isEnd: false });
+    expect(map["2026-03-05"][0]).toMatchObject({ isStart: false, isEnd: true });
+  });
+
+  it("clamps to the provided grid days", () => {
+    const ev = { id: 3, start: new Date(2026, 1, 28), end: new Date(2026, 2, 3) };
+    const map = eventSegmentsByDay([ev], week);
+    // Only Mar 2 and Mar 3 are within the week grid.
+    expect(Object.keys(map).sort()).toEqual(["2026-03-02", "2026-03-03"]);
+    expect(map["2026-03-02"][0].isStart).toBe(false); // started before the grid
+    expect(map["2026-03-03"][0].isEnd).toBe(true);
   });
 });

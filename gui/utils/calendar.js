@@ -43,6 +43,32 @@ export function isSameDay(a, b) {
   return dayKey(a) === dayKey(b);
 }
 
+/**
+ * Maps each event onto every grid day it covers, from its start day to its end
+ * day (inclusive). Events without an `end` cover only their start day. Returns
+ * `{ dayKey: [{ event, isStart, isEnd }] }` so a multi-day event shows on each
+ * day it spans instead of only on its start day.
+ */
+export function eventSegmentsByDay(events, days) {
+  const map = {};
+  for (const event of events) {
+    const a = dayKey(event.start);
+    const b = event.end ? dayKey(event.end) : a;
+    const [from, to] = a <= b ? [a, b] : [b, a];
+    for (const day of days) {
+      const key = dayKey(day);
+      if (key >= from && key <= to) {
+        (map[key] ||= []).push({
+          event,
+          isStart: key === from,
+          isEnd: key === to,
+        });
+      }
+    }
+  }
+  return map;
+}
+
 /** True if `value` is within the month of `monthDate`. */
 export function isSameMonth(value, monthDate) {
   const d = new Date(value);
