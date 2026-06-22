@@ -41,3 +41,19 @@ class TimeEntryHistoryRequestSchema(Schema):
 
     subtask_id: int
     last_hours: int
+
+
+class HistoryEntrySchema(Schema):
+    """
+    A time entry as shown on the history page: flattened with the names of its
+    owning subtask and task, and whether either of them is soft-deleted.
+    """
+
+    id: int
+    clock_in: datetime
+    clock_out: datetime | None
+    subtask_id: int
+    subtask_name: str
+    task_id: int
+    task_name: str
+    deleted: bool = False
