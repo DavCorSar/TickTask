@@ -104,10 +104,14 @@ def get_events(request, start: datetime, end: datetime):
     tags=["Calendar"],
     auth=JWTAuth(),
 )
-def get_calendar(request, start: datetime, end: datetime):
+def get_calendar(
+    request, start: datetime, end: datetime, include_deleted: bool = False
+):
     """
     Returns, for the ``[start, end]`` window, the user's scheduled events
-    together with the time entries already tracked in that range.
+    together with the time entries already tracked in that range. Entries whose
+    subtask or task has been soft-deleted are excluded unless ``include_deleted``
+    is set, in which case they are returned flagged with ``deleted: true``.
     """
     entries = (
         TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
@@ -115,6 +119,10 @@ def get_calendar(request, start: datetime, end: datetime):
         .filter(Q(clock_out__gte=start) | Q(clock_out__isnull=True))
         .order_by("clock_in")
     )
+    if not include_deleted:
+        entries = entries.filter(
+            subtask__deleted_at__isnull=True, subtask__task__deleted_at__isnull=True
+        )
 
     time_entries = [
         {
@@ -125,6 +133,7 @@ def get_calendar(request, start: datetime, end: datetime):
             "subtask_name": entry.subtask.name,
             "task_id": entry.subtask.task_id,
             "task_name": entry.subtask.task.name,
+            "deleted": entry.subtask.is_deleted or entry.subtask.task.is_deleted,
         }
         for entry in entries
     ]

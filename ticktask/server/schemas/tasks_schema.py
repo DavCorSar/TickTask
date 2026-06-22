@@ -46,3 +46,15 @@ class TaskCreationSchema(Schema):
     """
 
     name: str
+
+
+class TaskIdSchema(Schema):
+    """Identifies a task to soft-delete or restore."""
+
+    task_id: int
+
+
+class SubTaskIdSchema(Schema):
+    """Identifies a subtask to soft-delete or restore."""
+
+    subtask_id: int
