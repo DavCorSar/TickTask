@@ -24,6 +24,8 @@
         <slot />
       </main>
     </div>
+
+    <UiToastContainer />
   </div>
 </template>
 
