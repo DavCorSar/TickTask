@@ -1,0 +1,11 @@
+.git
+.venv
+**/__pycache__
+**/*.py[oc]
+*.sqlite3
+.env
+gui/node_modules
+gui/.output
+gui/.nuxt
+gui/dist
+.pytest_cache

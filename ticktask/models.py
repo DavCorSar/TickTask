@@ -149,3 +149,50 @@ class CalendarEvent(models.Model):
 
     class Meta:
         ordering = ["start"]
+
+
+class UserTelegramSettings(models.Model):
+    """
+    Per-user Telegram configuration for event reminders. The bot itself is a
+    single app-wide credential; this stores who to message (``chat_id``) and
+    how the user wants to be reminded.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="telegram_settings"
+    )
+    # The user's private chat with the bot, captured on linking. None = unlinked.
+    chat_id = models.CharField(max_length=64, null=True, blank=True, default=None)
+    enabled = models.BooleanField(default=True)
+    # How many minutes before an event to send the "heads-up" reminder.
+    reminder_lead_minutes = models.PositiveIntegerField(default=15)
+    # One-time token used to link a Telegram chat to this account.
+    link_token = models.CharField(max_length=64, null=True, blank=True, default=None)
+    link_token_created_at = models.DateTimeField(null=True, blank=True, default=None)
+    connected_at = models.DateTimeField(null=True, blank=True, default=None)
+
+    @property
+    def connected(self) -> bool:
+        """Whether a Telegram chat is linked to this account."""
+        return bool(self.chat_id)
+
+
+class SentReminder(models.Model):
+    """
+    Records that a reminder of a given ``kind`` ("lead" / "start") was already
+    sent for an event, so the scheduler never sends it twice. Cleared when the
+    event is edited (and cascaded away when it is deleted).
+    """
+
+    event = models.ForeignKey(
+        CalendarEvent, on_delete=models.CASCADE, related_name="sent_reminders"
+    )
+    kind = models.CharField(max_length=10)
+    sent_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["event", "kind"], name="unique_reminder_per_event_kind"
+            )
+        ]

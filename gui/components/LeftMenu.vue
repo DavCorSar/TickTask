@@ -82,6 +82,7 @@
     { label: "Dashboard", to: "/dashboard", icon: "lucide:chart-column" },
     { label: "Calendar", to: "/calendar", icon: "lucide:calendar-days" },
     { label: "History", to: "/time-history", icon: "lucide:history" },
+    { label: "Settings", to: "/settings", icon: "lucide:settings" },
   ];
 
   const isActive = (to) => route.path === to;
