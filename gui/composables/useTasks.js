@@ -66,5 +66,17 @@ export function useTasks() {
         method: "GET",
         query: { start, end, include_deleted: includeDeleted },
       }),
+
+    createTimeEntry: (subtaskId, clockIn, clockOut) =>
+      $api("/ticktask/user/create-time-entry/", {
+        method: "POST",
+        body: { subtask_id: subtaskId, clock_in: clockIn, clock_out: clockOut },
+      }),
+
+    updateTimeEntry: (entityId, clockIn, clockOut) =>
+      $api("/ticktask/user/update-time-entry/", {
+        method: "POST",
+        body: { entity_id: entityId, clock_in: clockIn, clock_out: clockOut },
+      }),
   };
 }
