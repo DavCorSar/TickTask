@@ -49,8 +49,6 @@ def get_user_tasks(request):
     """
     Returns the tasks and subtasks associated to each user.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
     active_subtasks = SubTask.objects.filter(deleted_at__isnull=True)  # pylint: disable=no-member
     tasks = (
         Task.objects.filter(user=request.auth, deleted_at__isnull=True)  # pylint: disable=no-member
@@ -70,9 +68,6 @@ def create_task(request, data: TaskCreationSchema):
     """
     Creates a new task for the authenticated user.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     name = data.name.strip()
     if not name:
         raise HttpError(422, "El nombre de la tarea no puede estar vacío.")
@@ -106,9 +101,6 @@ def create_subtask(request, data: SubTaskCreationSchema):
     """
     Creates a new subtask for the authenticated user.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
     except Task.DoesNotExist:  # pylint: disable=no-member
@@ -149,9 +141,6 @@ def delete_task(request, data: TaskIdSchema):
     its tracked time is kept (and still visible on the dashboard/calendar).
     Any open time entry under it is closed.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
     except Task.DoesNotExist:  # pylint: disable=no-member
@@ -180,9 +169,6 @@ def restore_task(request, data: TaskIdSchema):
     tracking. The unique name guarantees there is never a conflicting active
     task, so this cannot create a duplicate.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
     except Task.DoesNotExist:  # pylint: disable=no-member
@@ -205,9 +191,6 @@ def delete_subtask(request, data: SubTaskIdSchema):
     """
     Soft-deletes one of the user's subtasks (closing any open time entry on it).
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         subtask = SubTask.objects.select_related("task").get(  # pylint: disable=no-member
             id=data.subtask_id, task__user=request.auth
@@ -236,9 +219,6 @@ def restore_subtask(request, data: SubTaskIdSchema):
     """
     Restores a previously soft-deleted subtask.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         subtask = SubTask.objects.select_related("task").get(  # pylint: disable=no-member
             id=data.subtask_id, task__user=request.auth
@@ -263,9 +243,6 @@ def clock_in(request, data: ClockInSchema):
     """
     Registers a new time entry to the corresponding subtask.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         subtask = SubTask.objects.select_related("task").get(id=data.subtask_id)  # pylint: disable=no-member
     except SubTask.DoesNotExist:  # pylint: disable=no-member
@@ -290,10 +267,6 @@ def clock_out(request, data: ClockOutSchema):
     """
     Updates the given TimeEntry with clock_out.
     """
-    print("Clocking out")
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
-
     try:
         entry = TimeEntry.objects.select_related("subtask__task").get(  # pylint: disable=no-member
             id=data.entity_id, clock_out__isnull=True
@@ -319,8 +292,6 @@ def get_user_clocked_in_activity(request):
     """
     Returns the `Task` where the user is clocked in if exists.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
     time_entry = (
         TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
         .filter(
@@ -368,8 +339,6 @@ def get_history_time_entries(request, data: TimeEntryHistoryRequestSchema):
     """
     Returns the `TimeEntry`s associated with a specific subtask.
     """
-    if not request.auth:
-        return {"error": "No autorizado"}, 401
     cutoff = timezone.now() - timedelta(hours=data.last_hours)
     time_entries = TimeEntry.objects.filter(  # pylint: disable=no-member
         subtask_id=data.subtask_id, clock_in__gte=cutoff

@@ -22,7 +22,6 @@ def login(request, data: LoginSchema):
     """
     This endpoint checks and performs the login access into the app
     """
-    print(f"User: {data.username} and password: {data.password}")
     user = authenticate(username=data.username, password=data.password)
     if user:
         refresh = RefreshToken.for_user(user)
@@ -30,10 +29,6 @@ def login(request, data: LoginSchema):
         # Save login log
         user_ip = request.META.get("REMOTE_ADDR", "")
         user_agent = request.META.get("HTTP_USER_AGENT", "")
-        print(
-            f"User {user.username} logged in from IP: {user_ip}, User-Agent: {user_agent}"
-        )
-
         UserLoginRecord.objects.create(  # pylint: disable=no-member
             user=user, ip_address=user_ip, user_agent=user_agent
         )
