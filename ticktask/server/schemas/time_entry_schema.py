@@ -43,6 +43,26 @@ class TimeEntryHistoryRequestSchema(Schema):
     last_hours: int
 
 
+class TimeEntryCreateSchema(Schema):
+    """
+    Payload to manually log a completed time entry on a subtask.
+    """
+
+    subtask_id: int
+    clock_in: datetime
+    clock_out: datetime
+
+
+class TimeEntryUpdateSchema(Schema):
+    """
+    Payload to edit the start/end of an existing time entry.
+    """
+
+    entity_id: int
+    clock_in: datetime
+    clock_out: datetime
+
+
 class HistoryEntrySchema(Schema):
     """
     A time entry as shown on the history page: flattened with the names of its

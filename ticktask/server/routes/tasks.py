@@ -24,6 +24,8 @@ from ticktask.server.schemas.time_entry_schema import (
     ClockOutSchema,
     TimeEntrySchema,
     TimeEntryHistoryRequestSchema,
+    TimeEntryCreateSchema,
+    TimeEntryUpdateSchema,
     HistoryEntrySchema,
 )
 
@@ -390,3 +392,57 @@ def get_time_history(
         }
         for entry in entries
     ]
+
+
+@ticktask_router.post(
+    "/user/create-time-entry/",
+    response=TimeEntrySchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def create_time_entry(request, data: TimeEntryCreateSchema):
+    """
+    Manually logs a completed time entry on one of the user's subtasks, with
+    explicit start and end times (for work that wasn't tracked live).
+    """
+    try:
+        subtask = SubTask.objects.select_related("task").get(  # pylint: disable=no-member
+            id=data.subtask_id, task__user=request.auth
+        )
+    except SubTask.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Subtarea no encontrada.")
+
+    if subtask.is_deleted or subtask.task.is_deleted:
+        raise HttpError(409, "No se puede registrar tiempo en una subtarea eliminada.")
+    if data.clock_out <= data.clock_in:
+        raise HttpError(422, "La hora de fin debe ser posterior a la de inicio.")
+
+    return TimeEntry.objects.create(  # pylint: disable=no-member
+        subtask=subtask, clock_in=data.clock_in, clock_out=data.clock_out
+    )
+
+
+@ticktask_router.post(
+    "/user/update-time-entry/",
+    response=TimeEntrySchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def update_time_entry(request, data: TimeEntryUpdateSchema):
+    """
+    Edits the start and end times of one of the user's time entries.
+    """
+    try:
+        entry = TimeEntry.objects.select_related("subtask__task").get(  # pylint: disable=no-member
+            id=data.entity_id, subtask__task__user=request.auth
+        )
+    except TimeEntry.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Entrada no encontrada.")
+
+    if data.clock_out <= data.clock_in:
+        raise HttpError(422, "La hora de fin debe ser posterior a la de inicio.")
+
+    entry.clock_in = data.clock_in
+    entry.clock_out = data.clock_out
+    entry.save(update_fields=["clock_in", "clock_out"])
+    return entry

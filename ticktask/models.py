@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.db import models
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 
 class UserLoginRecord(models.Model):
@@ -113,7 +114,9 @@ class TimeEntry(models.Model):
     subtask = models.ForeignKey(
         SubTask, on_delete=models.CASCADE, related_name="time_entries"
     )
-    clock_in = models.DateTimeField(auto_now_add=True)
+    # Defaults to "now" for live clock-in, but is editable so entries can be
+    # created or corrected manually with explicit times.
+    clock_in = models.DateTimeField(default=timezone.now)
     clock_out = models.DateTimeField(null=True, blank=True)
 
     def get_time_dedicated(self) -> timedelta:

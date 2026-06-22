@@ -7,14 +7,17 @@
           Browse and review your past time entries.
         </p>
       </div>
-      <label
-        class="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
-        <input
-          v-model="includeDeleted"
-          type="checkbox"
-          class="size-4 rounded border-border accent-primary" />
-        Show deleted
-      </label>
+      <div class="flex items-center gap-4">
+        <label
+          class="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
+          <input
+            v-model="includeDeleted"
+            type="checkbox"
+            class="size-4 rounded border-border accent-primary" />
+          Show deleted
+        </label>
+        <UiButton icon="lucide:plus" @click="openCreate">Add entry</UiButton>
+      </div>
     </div>
 
     <!-- Controls -->
@@ -88,7 +91,7 @@
             <li
               v-for="entry in group.entries"
               :key="entry.id"
-              class="flex items-center gap-3 px-4 py-3">
+              class="group flex items-center gap-3 px-4 py-3">
               <span class="w-24 shrink-0 text-sm tabular-nums text-muted-foreground">
                 {{ formatClock(entry.clock_in) }} –
                 {{ entry.clock_out ? formatClock(entry.clock_out) : "now" }}
@@ -111,16 +114,28 @@
                 :class="{ 'text-muted-foreground': !entry.clock_out }">
                 {{ formatDuration(durationMs(entry)) }}
               </span>
+              <button
+                class="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:text-primary focus:opacity-100 group-hover:opacity-100"
+                title="Edit entry"
+                @click="openEdit(entry)">
+                <Icon name="lucide:pencil" class="size-4" />
+              </button>
             </li>
           </ul>
         </UiCard>
       </div>
     </div>
+
+    <TimeEntryDialog
+      v-model="dialogOpen"
+      :entry="editingEntry"
+      :tasks="tasks"
+      @saved="load" />
   </div>
 </template>
 
 <script setup>
-  import { ref, computed, watch } from "vue";
+  import { ref, computed, watch, onMounted } from "vue";
 
   definePageMeta({
     middleware: "auth",
@@ -128,8 +143,30 @@
     layout: "defaultlogged",
   });
 
-  const { getTimeHistory } = useTasks();
+  const { getTimeHistory, fetchTasks } = useTasks();
   const toast = useToast();
+
+  const tasks = ref([]);
+  const dialogOpen = ref(false);
+  const editingEntry = ref(null);
+
+  function openCreate() {
+    editingEntry.value = null;
+    dialogOpen.value = true;
+  }
+
+  function openEdit(entry) {
+    editingEntry.value = entry;
+    dialogOpen.value = true;
+  }
+
+  onMounted(async () => {
+    try {
+      tasks.value = await fetchTasks();
+    } catch (err) {
+      console.error("Error loading tasks for the entry picker:", err);
+    }
+  });
 
   const RANGES = [
     { value: "7", label: "7 days", days: 7 },
