@@ -46,3 +46,28 @@ class CalendarEventUpdateSchema(Schema):
     end: datetime | None = None
     all_day: bool | None = None
     color: str | None = None
+
+
+class CalendarTimeEntrySchema(Schema):
+    """
+    A tracked time entry as shown on the calendar, flattened with its
+    owning subtask and task names.
+    """
+
+    id: int
+    clock_in: datetime
+    clock_out: datetime | None
+    subtask_id: int
+    subtask_name: str
+    task_id: int
+    task_name: str
+
+
+class CalendarSchema(Schema):
+    """
+    Unified calendar payload for a date range: scheduled events plus the
+    time already tracked.
+    """
+
+    events: list[CalendarEventSchema]
+    time_entries: list[CalendarTimeEntrySchema]

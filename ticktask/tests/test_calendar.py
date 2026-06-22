@@ -10,7 +10,7 @@ from django.test import Client
 from django.contrib.auth.models import User
 from ninja_jwt.tokens import RefreshToken
 
-from ticktask.models import CalendarEvent
+from ticktask.models import CalendarEvent, Task, SubTask, TimeEntry
 
 BASE = "/api/calendar/user"
 
@@ -198,6 +198,47 @@ def test_delete_event_of_another_user_returns_404():
 
     assert resp.status_code == 404
     assert CalendarEvent.objects.filter(id=event.id).exists()  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_get_calendar_returns_events_and_time_entries():
+    """The unified endpoint returns both scheduled events and tracked time."""
+    user = make_user()
+    client = auth_client(user)
+
+    CalendarEvent.objects.create(  # pylint: disable=no-member
+        user=user,
+        title="Meeting",
+        start=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+        end=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+    )
+
+    task = Task.objects.create(user=user, name="Proj")  # pylint: disable=no-member
+    subtask = SubTask.objects.create(  # pylint: disable=no-member
+        task=task, name="Sub", description="d"
+    )
+    entry = TimeEntry.objects.create(subtask=subtask)  # pylint: disable=no-member
+    # clock_in is auto_now_add, so set the range via an explicit update.
+    TimeEntry.objects.filter(id=entry.id).update(  # pylint: disable=no-member
+        clock_in=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+        clock_out=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+    )
+
+    resp = client.get(
+        f"{BASE}/get-calendar/",
+        {
+            "start": iso(datetime(2026, 7, 1, 0, tzinfo=timezone.utc)),
+            "end": iso(datetime(2026, 7, 2, 0, tzinfo=timezone.utc)),
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [e["title"] for e in body["events"]] == ["Meeting"]
+    assert len(body["time_entries"]) == 1
+    entry_body = body["time_entries"][0]
+    assert entry_body["subtask_name"] == "Sub"
+    assert entry_body["task_name"] == "Proj"
 
 
 @pytest.mark.django_db

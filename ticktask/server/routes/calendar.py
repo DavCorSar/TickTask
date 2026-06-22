@@ -14,6 +14,7 @@ from ticktask.server.schemas.calendar_event_schema import (
     CalendarEventSchema,
     CalendarEventCreateSchema,
     CalendarEventUpdateSchema,
+    CalendarSchema,
 )
 
 try:
@@ -23,7 +24,7 @@ except RuntimeError:
     pass
 
 from django.db.models import Q
-from ticktask.models import CalendarEvent
+from ticktask.models import CalendarEvent, TimeEntry
 
 calendar_router = Router()
 
@@ -34,6 +35,20 @@ def _validate_range(start: datetime, end: datetime | None) -> None:
     """
     if end is not None and end < start:
         raise HttpError(422, "The event end cannot be before its start.")
+
+
+def _events_in_range(user, start: datetime, end: datetime):
+    """
+    Returns the user's events overlapping the ``[start, end]`` window.
+    """
+    return (
+        CalendarEvent.objects.filter(user=user)  # pylint: disable=no-member
+        .filter(
+            Q(start__lte=end)
+            & (Q(end__gte=start) | Q(end__isnull=True, start__gte=start))
+        )
+        .order_by("start")
+    )
 
 
 @calendar_router.post(
@@ -70,14 +85,44 @@ def get_events(request, start: datetime, end: datetime):
     Returns the events of the authenticated user that overlap the
     ``[start, end]`` window.
     """
-    return (
-        CalendarEvent.objects.filter(user=request.auth)  # pylint: disable=no-member
-        .filter(
-            Q(start__lte=end)
-            & (Q(end__gte=start) | Q(end__isnull=True, start__gte=start))
-        )
-        .order_by("start")
+    return _events_in_range(request.auth, start, end)
+
+
+@calendar_router.get(
+    "/user/get-calendar/",
+    response=CalendarSchema,
+    tags=["Calendar"],
+    auth=JWTAuth(),
+)
+def get_calendar(request, start: datetime, end: datetime):
+    """
+    Returns, for the ``[start, end]`` window, the user's scheduled events
+    together with the time entries already tracked in that range.
+    """
+    entries = (
+        TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
+        .filter(subtask__task__user=request.auth, clock_in__lte=end)
+        .filter(Q(clock_out__gte=start) | Q(clock_out__isnull=True))
+        .order_by("clock_in")
     )
+
+    time_entries = [
+        {
+            "id": entry.id,
+            "clock_in": entry.clock_in,
+            "clock_out": entry.clock_out,
+            "subtask_id": entry.subtask_id,
+            "subtask_name": entry.subtask.name,
+            "task_id": entry.subtask.task_id,
+            "task_name": entry.subtask.task.name,
+        }
+        for entry in entries
+    ]
+
+    return {
+        "events": list(_events_in_range(request.auth, start, end)),
+        "time_entries": time_entries,
+    }
 
 
 @calendar_router.patch(
