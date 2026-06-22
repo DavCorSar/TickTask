@@ -60,5 +60,11 @@ export function useTasks() {
         method: "POST",
         body: { subtask_id: subtaskId, last_hours: lastHours },
       }),
+
+    getTimeHistory: (start, end, includeDeleted = false) =>
+      $api("/ticktask/user/get-time-history/", {
+        method: "GET",
+        query: { start, end, include_deleted: includeDeleted },
+      }),
   };
 }

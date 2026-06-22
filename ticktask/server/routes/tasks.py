@@ -4,7 +4,7 @@ tasks and subtasks information.
 """
 
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import django
 from ninja import Router
@@ -24,6 +24,7 @@ from ticktask.server.schemas.time_entry_schema import (
     ClockOutSchema,
     TimeEntrySchema,
     TimeEntryHistoryRequestSchema,
+    HistoryEntrySchema,
 )
 
 try:
@@ -344,3 +345,48 @@ def get_history_time_entries(request, data: TimeEntryHistoryRequestSchema):
         subtask_id=data.subtask_id, clock_in__gte=cutoff
     ).order_by("-clock_in")
     return time_entries
+
+
+@ticktask_router.get(
+    "/user/get-time-history/",
+    response=list[HistoryEntrySchema],
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def get_time_history(
+    request, start: datetime, end: datetime, include_deleted: bool = False
+):
+    """
+    Returns the user's time entries whose ``clock_in`` falls within
+    ``[start, end]``, flattened with their subtask and task names and ordered
+    newest first. Entries of soft-deleted subtasks/tasks are excluded unless
+    ``include_deleted`` is set, in which case they are flagged with
+    ``deleted: true``.
+    """
+    entries = (
+        TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
+        .filter(
+            subtask__task__user=request.auth,
+            clock_in__gte=start,
+            clock_in__lte=end,
+        )
+        .order_by("-clock_in")
+    )
+    if not include_deleted:
+        entries = entries.filter(
+            subtask__deleted_at__isnull=True, subtask__task__deleted_at__isnull=True
+        )
+
+    return [
+        {
+            "id": entry.id,
+            "clock_in": entry.clock_in,
+            "clock_out": entry.clock_out,
+            "subtask_id": entry.subtask_id,
+            "subtask_name": entry.subtask.name,
+            "task_id": entry.subtask.task_id,
+            "task_name": entry.subtask.task.name,
+            "deleted": entry.subtask.is_deleted or entry.subtask.task.is_deleted,
+        }
+        for entry in entries
+    ]
