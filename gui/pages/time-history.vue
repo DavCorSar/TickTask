@@ -135,6 +135,7 @@
     { value: "7", label: "7 days", days: 7 },
     { value: "30", label: "30 days", days: 30 },
     { value: "90", label: "90 days", days: 90 },
+    { value: "all", label: "All", days: null },
   ];
 
   const range = ref("30");
@@ -197,9 +198,15 @@
     try {
       const option = RANGES.find((r) => r.value === range.value);
       const end = new Date();
-      const start = new Date(end);
-      start.setDate(start.getDate() - option.days);
-      start.setHours(0, 0, 0, 0);
+      let start;
+      if (option.days === null) {
+        // "All" — reach back far enough to cover every entry.
+        start = new Date(0);
+      } else {
+        start = new Date(end);
+        start.setDate(start.getDate() - option.days);
+        start.setHours(0, 0, 0, 0);
+      }
       entries.value = await getTimeHistory(
         start.toISOString(),
         end.toISOString(),
