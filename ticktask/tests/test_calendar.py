@@ -151,6 +151,62 @@ def test_update_event():
 
 
 @pytest.mark.django_db
+def test_update_event_rejects_end_before_start():
+    """A partial update that leaves the end before the start is rejected."""
+    user = make_user()
+    event = CalendarEvent.objects.create(  # pylint: disable=no-member
+        user=user,
+        title="Meeting",
+        start=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+        end=datetime(2026, 7, 1, 10, tzinfo=timezone.utc),
+    )
+
+    # Patch only the end, to before the already-stored start.
+    resp = auth_client(user).patch(
+        f"{BASE}/update-event/{event.id}/",
+        data=json.dumps({"end": iso(datetime(2026, 7, 1, 8, tzinfo=timezone.utc))}),
+        content_type="application/json",
+    )
+
+    assert resp.status_code == 422
+    event.refresh_from_db()
+    assert event.end == datetime(2026, 7, 1, 10, tzinfo=timezone.utc)
+
+
+@pytest.mark.django_db
+def test_create_event_rejects_blank_title():
+    """A title that is empty once stripped is rejected."""
+    user = make_user()
+    resp = post_json(
+        auth_client(user),
+        f"{BASE}/create-event/",
+        {"title": "   ", "start": iso(datetime(2026, 7, 1, 9, tzinfo=timezone.utc))},
+    )
+
+    assert resp.status_code == 422
+    assert CalendarEvent.objects.count() == 0  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_update_event_rejects_blank_title():
+    """Patching the title to blank is rejected and leaves the event intact."""
+    user = make_user()
+    event = CalendarEvent.objects.create(  # pylint: disable=no-member
+        user=user, title="Kept", start=datetime(2026, 7, 1, 9, tzinfo=timezone.utc)
+    )
+
+    resp = auth_client(user).patch(
+        f"{BASE}/update-event/{event.id}/",
+        data=json.dumps({"title": "   "}),
+        content_type="application/json",
+    )
+
+    assert resp.status_code == 422
+    event.refresh_from_db()
+    assert event.title == "Kept"
+
+
+@pytest.mark.django_db
 def test_update_event_of_another_user_returns_404():
     """A user cannot update an event they do not own."""
     owner = make_user("alice")
@@ -239,6 +295,64 @@ def test_get_calendar_returns_events_and_time_entries():
     entry_body = body["time_entries"][0]
     assert entry_body["subtask_name"] == "Sub"
     assert entry_body["task_name"] == "Proj"
+
+
+@pytest.mark.django_db
+def test_get_calendar_only_returns_own_time_entries():
+    """Another user's tracked time never leaks into the unified calendar."""
+    user = make_user("alice")
+    other = make_user("bob")
+
+    other_task = Task.objects.create(user=other, name="Secret")  # pylint: disable=no-member
+    other_subtask = SubTask.objects.create(  # pylint: disable=no-member
+        task=other_task, name="Hidden", description="d"
+    )
+    other_entry = TimeEntry.objects.create(subtask=other_subtask)  # pylint: disable=no-member
+    TimeEntry.objects.filter(id=other_entry.id).update(  # pylint: disable=no-member
+        clock_in=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+        clock_out=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+    )
+
+    resp = auth_client(user).get(
+        f"{BASE}/get-calendar/",
+        {
+            "start": iso(datetime(2026, 7, 1, 0, tzinfo=timezone.utc)),
+            "end": iso(datetime(2026, 7, 2, 0, tzinfo=timezone.utc)),
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["events"] == []
+    assert body["time_entries"] == []
+
+
+@pytest.mark.django_db
+def test_get_calendar_includes_open_time_entry():
+    """An entry still clocked in (no clock_out) is included in the range."""
+    user = make_user()
+    task = Task.objects.create(user=user, name="Proj")  # pylint: disable=no-member
+    subtask = SubTask.objects.create(  # pylint: disable=no-member
+        task=task, name="Sub", description="d"
+    )
+    entry = TimeEntry.objects.create(subtask=subtask)  # pylint: disable=no-member
+    TimeEntry.objects.filter(id=entry.id).update(  # pylint: disable=no-member
+        clock_in=datetime(2026, 7, 1, 11, tzinfo=timezone.utc),
+        clock_out=None,
+    )
+
+    resp = auth_client(user).get(
+        f"{BASE}/get-calendar/",
+        {
+            "start": iso(datetime(2026, 7, 1, 0, tzinfo=timezone.utc)),
+            "end": iso(datetime(2026, 7, 2, 0, tzinfo=timezone.utc)),
+        },
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body["time_entries"]) == 1
+    assert body["time_entries"][0]["clock_out"] is None
 
 
 @pytest.mark.django_db

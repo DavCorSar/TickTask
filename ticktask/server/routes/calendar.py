@@ -37,6 +37,14 @@ def _validate_range(start: datetime, end: datetime | None) -> None:
         raise HttpError(422, "The event end cannot be before its start.")
 
 
+def _validate_title(title: str) -> None:
+    """
+    Ensures the event title is not blank once surrounding whitespace is stripped.
+    """
+    if not title:
+        raise HttpError(422, "The event title cannot be empty.")
+
+
 def _events_in_range(user, start: datetime, end: datetime):
     """
     Returns the user's events overlapping the ``[start, end]`` window.
@@ -62,10 +70,12 @@ def create_event(request, data: CalendarEventCreateSchema):
     Creates a new calendar event for the authenticated user.
     """
     _validate_range(data.start, data.end)
+    title = data.title.strip()
+    _validate_title(title)
 
     return CalendarEvent.objects.create(  # pylint: disable=no-member
         user=request.auth,
-        title=data.title.strip(),
+        title=title,
         description=data.description.strip(),
         start=data.start,
         end=data.end,
@@ -146,6 +156,8 @@ def update_event(request, event_id: int, data: CalendarEventUpdateSchema):
     for field in ("title", "description", "color"):
         if field in payload and payload[field] is not None:
             payload[field] = payload[field].strip()
+    if "title" in payload and payload["title"] is not None:
+        _validate_title(payload["title"])
     for attr, value in payload.items():
         setattr(event, attr, value)
 
