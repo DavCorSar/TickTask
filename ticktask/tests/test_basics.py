@@ -32,6 +32,7 @@ def test_complete_insertion():
     assert TimeEntry.objects.count() == 0  # pylint: disable=no-member
 
 
+@pytest.mark.django_db
 def test_time_dedicated_when_there_are_no_time_entries_is_zero():
     """
     This test checks that when there are no objects

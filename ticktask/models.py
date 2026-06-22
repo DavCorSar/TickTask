@@ -107,3 +107,25 @@ class TimeEntry(models.Model):
         if self.clock_out:
             return self.clock_out - self.clock_in
         return timedelta()
+
+
+class CalendarEvent(models.Model):
+    """
+    A user-scheduled event in the agenda/calendar (e.g. a meeting or a
+    planned activity), independent from the tracked time entries.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="calendar_events"
+    )
+    title = models.CharField(max_length=200)
+    description = models.CharField(max_length=600, blank=True, default="")
+    start = models.DateTimeField()
+    end = models.DateTimeField(null=True, blank=True)
+    all_day = models.BooleanField(default=False)
+    color = models.CharField(max_length=20, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["start"]
