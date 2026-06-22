@@ -5,7 +5,17 @@
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Calendar</h1>
         <p class="mt-1 text-muted-foreground">Your tracked time and scheduled events.</p>
       </div>
-      <UiButton icon="lucide:plus" @click="openCreate(new Date())">New event</UiButton>
+      <div class="flex items-center gap-4">
+        <label
+          class="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
+          <input
+            v-model="includeDeleted"
+            type="checkbox"
+            class="size-4 rounded border-border accent-primary" />
+          Show deleted
+        </label>
+        <UiButton icon="lucide:plus" @click="openCreate(new Date())">New event</UiButton>
+      </div>
     </div>
 
     <UiCard padded>
@@ -62,7 +72,15 @@
             </span>
             <span
               v-if="trackedByDay[dayKey(day)]"
-              class="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+              class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+              :class="
+                deletedByDay[dayKey(day)]
+                  ? 'bg-muted text-muted-foreground'
+                  : 'bg-accent/15 text-accent'
+              "
+              :title="
+                deletedByDay[dayKey(day)] ? 'Includes deleted tracked time' : ''
+              ">
               {{ compactDuration(trackedByDay[dayKey(day)]) }}
             </span>
           </div>
@@ -112,6 +130,7 @@
   const events = ref([]);
   const timeEntries = ref([]);
   const loading = ref(false);
+  const includeDeleted = ref(false);
 
   const dialogOpen = ref(false);
   const editingEvent = ref(null);
@@ -134,6 +153,14 @@
       const end = entry.clock_out ? new Date(entry.clock_out) : new Date();
       const key = dayKey(start);
       map[key] = (map[key] || 0) + (end - start);
+    }
+    return map;
+  });
+
+  const deletedByDay = computed(() => {
+    const map = {};
+    for (const entry of timeEntries.value) {
+      if (entry.deleted) map[dayKey(new Date(entry.clock_in))] = true;
     }
     return map;
   });
@@ -167,7 +194,11 @@
 
       const res = await $api("/calendar/user/get-calendar/", {
         method: "GET",
-        query: { start: first.toISOString(), end: rangeEnd.toISOString() },
+        query: {
+          start: first.toISOString(),
+          end: rangeEnd.toISOString(),
+          include_deleted: includeDeleted.value,
+        },
       });
       events.value = res.events;
       timeEntries.value = res.time_entries;
@@ -204,4 +235,5 @@
   }
 
   watch(cursor, load, { immediate: true });
+  watch(includeDeleted, load);
 </script>

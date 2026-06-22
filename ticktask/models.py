@@ -32,10 +32,14 @@ class Task(models.Model):
 
     name = models.CharField(max_length=200)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="tasks")
+    # Soft delete: ``None`` means active. A deleted task keeps its row (and so
+    # keeps reserving its name) and stays visible on the dashboard/calendar.
+    deleted_at = models.DateTimeField(null=True, blank=True, default=None)
 
     class Meta:
         """
-        Include the unique constraint of task name per user.
+        Include the unique constraint of task name per user. Deleted rows keep
+        their name, so it stays reserved until the task is restored.
         """
 
         constraints = [
@@ -43,6 +47,11 @@ class Task(models.Model):
                 fields=["user", "name"], name="unique_task_per_user"
             )
         ]
+
+    @property
+    def is_deleted(self) -> bool:
+        """Whether the task has been soft-deleted."""
+        return self.deleted_at is not None
 
     def get_time_dedicated(self) -> timedelta:
         """
@@ -64,10 +73,13 @@ class SubTask(models.Model):
     name = models.CharField(max_length=200)
     description = models.CharField(max_length=600)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="subtasks")
+    # Soft delete: ``None`` means active. See ``Task.deleted_at``.
+    deleted_at = models.DateTimeField(null=True, blank=True, default=None)
 
     class Meta:
         """
-        Include the unique constraint of subtask name per task.
+        Include the unique constraint of subtask name per task. Deleted rows
+        keep their name, so it stays reserved until the subtask is restored.
         """
 
         constraints = [
@@ -75,6 +87,11 @@ class SubTask(models.Model):
                 fields=["task", "name"], name="unique_subtask_per_task"
             )
         ]
+
+    @property
+    def is_deleted(self) -> bool:
+        """Whether the subtask has been soft-deleted."""
+        return self.deleted_at is not None
 
     def get_time_dedicated(self) -> timedelta:
         """

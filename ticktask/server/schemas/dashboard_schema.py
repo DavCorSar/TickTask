@@ -39,6 +39,7 @@ class SubTaskHoursSchema(Schema):
     subtask_id: int
     subtask_name: str
     hours: float
+    deleted: bool = False
 
 
 class TaskHoursSchema(Schema):
@@ -51,6 +52,7 @@ class TaskHoursSchema(Schema):
     task_id: int
     task_name: str
     hours: float
+    deleted: bool = False
     series: list[float]
     subtasks: list[SubTaskHoursSchema]
 

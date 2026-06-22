@@ -40,6 +40,18 @@ def _hours(delta: timedelta) -> float:
     return round(delta.total_seconds() / 3600, 4)
 
 
+def _filter_deleted(queryset, include_deleted: bool):
+    """
+    Unless ``include_deleted`` is set, drops time entries whose subtask or task
+    has been soft-deleted.
+    """
+    if include_deleted:
+        return queryset
+    return queryset.filter(
+        subtask__deleted_at__isnull=True, subtask__task__deleted_at__isnull=True
+    )
+
+
 def _bucket_start(day: date, bucket: str) -> date:
     """Returns the date the bucket containing ``day`` starts on."""
     if bucket == "week":
@@ -73,7 +85,7 @@ def _iter_buckets(start: date, end: date, bucket: str):
     tags=["Dashboard"],
     auth=JWTAuth(),
 )
-def get_summary(request):
+def get_summary(request, include_deleted: bool = False):
     """
     Returns the headline hours for the stat cards: time tracked today, this
     week, this month and overall, plus the number of tasks worked on this
@@ -86,9 +98,11 @@ def get_summary(request):
     month_start = today_start.replace(day=1)
 
     today = week = month = total = timedelta()
-    entries = TimeEntry.objects.filter(  # pylint: disable=no-member
+    entries_qs = TimeEntry.objects.filter(  # pylint: disable=no-member
         subtask__task__user=request.auth, clock_out__isnull=False
-    ).values("clock_in", "clock_out")
+    )
+    entries_qs = _filter_deleted(entries_qs, include_deleted)
+    entries = entries_qs.values("clock_in", "clock_out")
     for entry in entries:
         duration = entry["clock_out"] - entry["clock_in"]
         total += duration
@@ -101,14 +115,11 @@ def get_summary(request):
             month += duration
 
     # "Active" means worked on this week, so an entry still open counts too.
-    active_tasks = (
-        TimeEntry.objects.filter(  # pylint: disable=no-member
-            subtask__task__user=request.auth, clock_in__gte=week_start
-        )
-        .values("subtask__task_id")
-        .distinct()
-        .count()
+    active_qs = TimeEntry.objects.filter(  # pylint: disable=no-member
+        subtask__task__user=request.auth, clock_in__gte=week_start
     )
+    active_qs = _filter_deleted(active_qs, include_deleted)
+    active_tasks = active_qs.values("subtask__task_id").distinct().count()
 
     return {
         "today_hours": _hours(today),
@@ -125,11 +136,19 @@ def get_summary(request):
     tags=["Dashboard"],
     auth=JWTAuth(),
 )
-def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"):
+def get_time_series(
+    request,
+    start: datetime,
+    end: datetime,
+    bucket: str = "day",
+    include_deleted: bool = False,
+):
     """
     Returns the tracked hours within ``[start, end]`` grouped into contiguous
     ``bucket`` (``day``/``week``/``month``) buckets (zero-filled), together
-    with the per-task and per-subtask totals for the same range.
+    with the per-task and per-subtask totals for the same range. Soft-deleted
+    tasks/subtasks are excluded unless ``include_deleted`` is set, in which case
+    they are returned flagged with ``deleted: true``.
     """
     if bucket not in _BUCKETS:
         raise HttpError(422, f"bucket must be one of {', '.join(_BUCKETS)}.")
@@ -137,14 +156,15 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
         raise HttpError(422, "end cannot be before start.")
 
     entries = (
-        TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
-        .filter(
-            subtask__task__user=request.auth,
-            clock_out__isnull=False,
-            clock_in__gte=start,
-            clock_in__lte=end,
-        )
-        .order_by("clock_in")
+        _filter_deleted(
+            TimeEntry.objects.select_related("subtask__task").filter(  # pylint: disable=no-member
+                subtask__task__user=request.auth,
+                clock_out__isnull=False,
+                clock_in__gte=start,
+                clock_in__lte=end,
+            ),
+            include_deleted,
+        ).order_by("clock_in")
     )
 
     bucket_totals: dict[date, timedelta] = {}
@@ -158,21 +178,38 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
         task = subtask.task
         task_agg = tasks.setdefault(
             task.id,
-            {"name": task.name, "total": timedelta(), "buckets": {}, "subtasks": {}},
+            {
+                "name": task.name,
+                "deleted": task.is_deleted,
+                "total": timedelta(),
+                "buckets": {},
+                "subtasks": {},
+            },
         )
         task_agg["total"] += duration
         task_agg["buckets"][key] = task_agg["buckets"].get(key, timedelta()) + duration
         sub_agg = task_agg["subtasks"].setdefault(
-            subtask.id, {"name": subtask.name, "total": timedelta()}
+            subtask.id,
+            {"name": subtask.name, "deleted": subtask.is_deleted, "total": timedelta()},
         )
         sub_agg["total"] += duration
 
     # Include every task the user owns, so a task with no tracked time in the
     # range still shows up (as a flat zero line) instead of disappearing.
-    for task in Task.objects.filter(user=request.auth):  # pylint: disable=no-member
+    # Deleted tasks are only added in when explicitly requested.
+    idle_tasks = Task.objects.filter(user=request.auth)  # pylint: disable=no-member
+    if not include_deleted:
+        idle_tasks = idle_tasks.filter(deleted_at__isnull=True)
+    for task in idle_tasks:
         tasks.setdefault(
             task.id,
-            {"name": task.name, "total": timedelta(), "buckets": {}, "subtasks": {}},
+            {
+                "name": task.name,
+                "deleted": task.is_deleted,
+                "total": timedelta(),
+                "buckets": {},
+                "subtasks": {},
+            },
         )
 
     bucket_keys = list(_iter_buckets(start.date(), end.date(), bucket))
@@ -185,6 +222,7 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
         {
             "task_id": task_id,
             "task_name": agg["name"],
+            "deleted": agg["deleted"],
             "hours": _hours(agg["total"]),
             "series": [
                 _hours(agg["buckets"].get(day, timedelta())) for day in bucket_keys
@@ -193,6 +231,7 @@ def get_time_series(request, start: datetime, end: datetime, bucket: str = "day"
                 {
                     "subtask_id": sub_id,
                     "subtask_name": sub["name"],
+                    "deleted": sub["deleted"],
                     "hours": _hours(sub["total"]),
                 }
                 for sub_id, sub in sorted(

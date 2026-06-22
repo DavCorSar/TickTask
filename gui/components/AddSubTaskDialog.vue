@@ -79,7 +79,9 @@
       emit("subtask-created", response);
       dialog.value = false;
     } catch (err) {
-      nameError.value = "Couldn't create the subtask. Does it already exist?";
+      nameError.value =
+        err?.data?.detail ||
+        "Couldn't create the subtask. Does it already exist?";
       console.error("Error creating subtask:", err);
     } finally {
       loading.value = false;

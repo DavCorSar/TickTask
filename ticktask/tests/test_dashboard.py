@@ -184,7 +184,7 @@ def test_time_series_by_task_breakdown_sorted():
     assert names == [("Beta", 3.0), ("Alpha", 1.0)]
     beta = body["by_task"][0]
     assert beta["subtasks"] == [
-        {"subtask_id": sub_b.id, "subtask_name": "b1", "hours": 3.0}
+        {"subtask_id": sub_b.id, "subtask_name": "b1", "hours": 3.0, "deleted": False}
     ]
 
 

@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import django
 from ninja import Router
+from ninja.errors import HttpError
 from ninja_jwt.authentication import JWTAuth
 
 from ticktask.server.schemas.tasks_schema import (
@@ -15,6 +16,8 @@ from ticktask.server.schemas.tasks_schema import (
     TaskCreationSchema,
     SubTaskSchema,
     SubTaskCreationSchema,
+    TaskIdSchema,
+    SubTaskIdSchema,
 )
 from ticktask.server.schemas.time_entry_schema import (
     ClockInSchema,
@@ -30,6 +33,7 @@ except RuntimeError:
     pass
 
 from ticktask.models import Task, SubTask, TimeEntry
+from django.db.models import Prefetch
 from django.utils import timezone
 
 ticktask_router = Router()
@@ -47,7 +51,12 @@ def get_user_tasks(request):
     """
     if not request.auth:
         return {"error": "No autorizado"}, 401
-    tasks = Task.objects.filter(user=request.auth).order_by("name")  # pylint: disable=no-member
+    active_subtasks = SubTask.objects.filter(deleted_at__isnull=True)  # pylint: disable=no-member
+    tasks = (
+        Task.objects.filter(user=request.auth, deleted_at__isnull=True)  # pylint: disable=no-member
+        .prefetch_related(Prefetch("subtasks", queryset=active_subtasks))
+        .order_by("name")
+    )
     return tasks
 
 
@@ -64,9 +73,25 @@ def create_task(request, data: TaskCreationSchema):
     if not request.auth:
         return {"error": "No autorizado"}, 401
 
+    name = data.name.strip()
+    if not name:
+        raise HttpError(422, "El nombre de la tarea no puede estar vacío.")
+
+    existing = Task.objects.filter(  # pylint: disable=no-member
+        user=request.auth, name=name
+    ).first()
+    if existing is not None:
+        if existing.is_deleted:
+            raise HttpError(
+                409,
+                "Ya existe una tarea eliminada con ese nombre. "
+                "Restáurala en lugar de crear una nueva.",
+            )
+        raise HttpError(409, "Ya existe una tarea con ese nombre.")
+
     task = Task.objects.create(  # pylint: disable=no-member
         user=request.auth,
-        name=data.name.strip(),
+        name=name,
     )
     return task
 
@@ -89,11 +114,141 @@ def create_subtask(request, data: SubTaskCreationSchema):
     except Task.DoesNotExist:  # pylint: disable=no-member
         return {"error": "Tarea no encontrada"}, 404
 
+    name = data.name.strip()
+    if not name:
+        raise HttpError(422, "El nombre de la subtarea no puede estar vacío.")
+
+    existing = SubTask.objects.filter(task=task, name=name).first()  # pylint: disable=no-member
+    if existing is not None:
+        if existing.is_deleted:
+            raise HttpError(
+                409,
+                "Ya existe una subtarea eliminada con ese nombre en esta tarea. "
+                "Restáurala en lugar de crear una nueva.",
+            )
+        raise HttpError(409, "Ya existe una subtarea con ese nombre en esta tarea.")
+
     subtask = SubTask.objects.create(  # pylint: disable=no-member
-        name=data.name.strip(),
+        name=name,
         description=data.description.strip(),
         task=task,
     )
+
+    return subtask
+
+
+@ticktask_router.post(
+    "/user/delete-task/",
+    response={200: dict},
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def delete_task(request, data: TaskIdSchema):
+    """
+    Soft-deletes one of the user's tasks: it disappears from time tracking but
+    its tracked time is kept (and still visible on the dashboard/calendar).
+    Any open time entry under it is closed.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
+    except Task.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Tarea no encontrada.")
+
+    if not task.is_deleted:
+        now = timezone.now()
+        TimeEntry.objects.filter(  # pylint: disable=no-member
+            subtask__task=task, clock_out__isnull=True
+        ).update(clock_out=now)
+        task.deleted_at = now
+        task.save(update_fields=["deleted_at"])
+
+    return {"success": True}
+
+
+@ticktask_router.post(
+    "/user/restore-task/",
+    response=TaskSchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def restore_task(request, data: TaskIdSchema):
+    """
+    Restores a previously soft-deleted task so it shows up again in time
+    tracking. The unique name guarantees there is never a conflicting active
+    task, so this cannot create a duplicate.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
+    except Task.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Tarea no encontrada.")
+
+    if task.is_deleted:
+        task.deleted_at = None
+        task.save(update_fields=["deleted_at"])
+
+    return task
+
+
+@ticktask_router.post(
+    "/user/delete-subtask/",
+    response={200: dict},
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def delete_subtask(request, data: SubTaskIdSchema):
+    """
+    Soft-deletes one of the user's subtasks (closing any open time entry on it).
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        subtask = SubTask.objects.select_related("task").get(  # pylint: disable=no-member
+            id=data.subtask_id, task__user=request.auth
+        )
+    except SubTask.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Subtarea no encontrada.")
+
+    if not subtask.is_deleted:
+        now = timezone.now()
+        TimeEntry.objects.filter(  # pylint: disable=no-member
+            subtask=subtask, clock_out__isnull=True
+        ).update(clock_out=now)
+        subtask.deleted_at = now
+        subtask.save(update_fields=["deleted_at"])
+
+    return {"success": True}
+
+
+@ticktask_router.post(
+    "/user/restore-subtask/",
+    response=SubTaskSchema,
+    tags=["Ticktask"],
+    auth=JWTAuth(),
+)
+def restore_subtask(request, data: SubTaskIdSchema):
+    """
+    Restores a previously soft-deleted subtask.
+    """
+    if not request.auth:
+        return {"error": "No autorizado"}, 401
+
+    try:
+        subtask = SubTask.objects.select_related("task").get(  # pylint: disable=no-member
+            id=data.subtask_id, task__user=request.auth
+        )
+    except SubTask.DoesNotExist:  # pylint: disable=no-member
+        raise HttpError(404, "Subtarea no encontrada.")
+
+    if subtask.is_deleted:
+        subtask.deleted_at = None
+        subtask.save(update_fields=["deleted_at"])
 
     return subtask
 
@@ -118,6 +273,8 @@ def clock_in(request, data: ClockInSchema):
 
     if subtask.task.user != request.auth:
         return {"error": "No autorizado para esta subtarea"}, 403
+    if subtask.is_deleted or subtask.task.is_deleted:
+        raise HttpError(409, "No se puede fichar en una subtarea eliminada.")
     entry = TimeEntry.objects.create(subtask=subtask)  # pylint: disable=no-member
 
     return entry
@@ -166,7 +323,12 @@ def get_user_clocked_in_activity(request):
         return {"error": "No autorizado"}, 401
     time_entry = (
         TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
-        .filter(clock_out__isnull=True, subtask__task__user=request.auth)
+        .filter(
+            clock_out__isnull=True,
+            subtask__task__user=request.auth,
+            subtask__deleted_at__isnull=True,
+            subtask__task__deleted_at__isnull=True,
+        )
         .first()
     )
 

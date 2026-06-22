@@ -61,6 +61,7 @@ class CalendarTimeEntrySchema(Schema):
     subtask_name: str
     task_id: int
     task_name: str
+    deleted: bool = False
 
 
 class CalendarSchema(Schema):
