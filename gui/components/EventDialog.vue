@@ -16,10 +16,14 @@
 
       <div class="grid gap-4 sm:grid-cols-2">
         <UiInput v-model="startLocal" label="Start" type="datetime-local" />
-        <UiInput v-model="endLocal" label="End (optional)" type="datetime-local" />
+        <UiInput
+          v-model="endLocal"
+          label="End (optional)"
+          type="datetime-local" />
       </div>
 
-      <label class="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
+      <label
+        class="flex w-fit cursor-pointer items-center gap-2 text-sm font-medium">
         <input
           v-model="allDay"
           type="checkbox"
@@ -73,9 +77,17 @@
 
   const emit = defineEmits(["update:modelValue", "saved", "deleted"]);
 
-  const { $api } = useNuxtApp();
+  const { createEvent, updateEvent, deleteEvent } = useCalendar();
+  const toast = useToast();
 
-  const presets = ["#007CBF", "#5EA611", "#D30F4B", "#F59E0B", "#7C3AED", "#0EA5E9"];
+  const presets = [
+    "#007CBF",
+    "#5EA611",
+    "#D30F4B",
+    "#F59E0B",
+    "#7C3AED",
+    "#0EA5E9",
+  ];
 
   const title = ref("");
   const description = ref("");
@@ -104,10 +116,14 @@
         description.value = props.event.description || "";
         allDay.value = props.event.all_day;
         startLocal.value = toDateTimeLocal(props.event.start);
-        endLocal.value = props.event.end ? toDateTimeLocal(props.event.end) : "";
+        endLocal.value = props.event.end
+          ? toDateTimeLocal(props.event.end)
+          : "";
         color.value = props.event.color || presets[0];
       } else {
-        const base = props.defaultStart ? new Date(props.defaultStart) : new Date();
+        const base = props.defaultStart
+          ? new Date(props.defaultStart)
+          : new Date();
         title.value = "";
         description.value = "";
         allDay.value = false;
@@ -115,7 +131,7 @@
         endLocal.value = "";
         color.value = presets[0];
       }
-    }
+    },
   );
 
   async function submit() {
@@ -148,20 +164,15 @@
     saving.value = true;
     try {
       if (isEdit.value) {
-        await $api(`/calendar/user/update-event/${props.event.id}/`, {
-          method: "PATCH",
-          body: payload,
-        });
+        await updateEvent(props.event.id, payload);
       } else {
-        await $api("/calendar/user/create-event/", {
-          method: "POST",
-          body: payload,
-        });
+        await createEvent(payload);
       }
+      toast.success(isEdit.value ? "Event updated." : "Event created.");
       emit("saved");
       open.value = false;
     } catch (err) {
-      error.value = "Couldn't save the event.";
+      error.value = err?.data?.detail || "Couldn't save the event.";
       console.error("Error saving event:", err);
     } finally {
       saving.value = false;
@@ -172,13 +183,12 @@
     if (deleting.value) return;
     deleting.value = true;
     try {
-      await $api(`/calendar/user/delete-event/${props.event.id}/`, {
-        method: "DELETE",
-      });
+      await deleteEvent(props.event.id);
+      toast.success("Event deleted.");
       emit("deleted");
       open.value = false;
     } catch (err) {
-      error.value = "Couldn't delete the event.";
+      error.value = err?.data?.detail || "Couldn't delete the event.";
       console.error("Error deleting event:", err);
     } finally {
       deleting.value = false;

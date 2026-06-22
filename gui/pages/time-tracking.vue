@@ -246,7 +246,16 @@
     layout: "defaultlogged",
   });
 
-  const { $api } = useNuxtApp();
+  const {
+    fetchTasks,
+    getClockedIn,
+    clockIn: apiClockIn,
+    clockOut: apiClockOut,
+    getTimeEntries,
+    deleteTask: apiDeleteTask,
+    deleteSubtask: apiDeleteSubtask,
+  } = useTasks();
+  const toast = useToast();
 
   const tasks = ref([]);
   const loadingTasks = ref(false);
@@ -290,13 +299,9 @@
   onMounted(async () => {
     loadingTasks.value = true;
     try {
-      tasks.value = await $api("/ticktask/user/get-tasks-and-subtasks/", {
-        method: "GET",
-      });
+      tasks.value = await fetchTasks();
 
-      const active = await $api("/ticktask/user/get-clocked-in-time-entry/", {
-        method: "GET",
-      });
+      const active = await getClockedIn();
       if (active) {
         const subtask = active.subtasks[0];
         const entry = subtask.time_entries[0];
@@ -314,6 +319,7 @@
       }
     } catch (error) {
       console.error("Error fetching tasks:", error);
+      toast.error("Couldn't load your tasks.");
     } finally {
       loadingTasks.value = false;
     }
@@ -347,20 +353,15 @@
 
   async function clockIn() {
     try {
-      const existing = await $api("/ticktask/user/get-clocked-in-time-entry/", {
-        method: "GET",
-      });
+      const existing = await getClockedIn();
       if (existing) {
-        alert(
-          "You already have an active task. Please close it before starting a new one.",
+        toast.info(
+          "You already have an active task. Clock it out before starting a new one.",
         );
         return;
       }
 
-      const response = await $api("/ticktask/user/clock-in/", {
-        method: "POST",
-        body: { subtask_id: selectedSubtask.value.id },
-      });
+      const response = await apiClockIn(selectedSubtask.value.id);
 
       isClockedIn.value = true;
       clockInTime.value = new Date(response.clock_in);
@@ -371,36 +372,23 @@
       fetchRecentTimeEntries(activeSubTask.value.id);
     } catch (err) {
       console.error("Error during clock in:", err);
+      toast.error(err?.data?.detail || "Couldn't clock in.");
     }
   }
 
   async function clockOut() {
     try {
-      await $api("/ticktask/user/clock-out/", {
-        method: "POST",
-        body: { entity_id: activeTimeEntryId.value },
-      });
-
-      isClockedIn.value = false;
-      if (clockInterval) clearInterval(clockInterval);
-
-      clockInTime.value = null;
-      clockInDuration.value = "00:00:00";
-      activeTimeEntryId.value = null;
-      activeTask.value = null;
-      activeSubTask.value = null;
-      recentTimeEntries.value = [];
+      await apiClockOut(activeTimeEntryId.value);
+      resetTracker();
     } catch (err) {
       console.error("Error during clock out:", err);
+      toast.error("Couldn't clock out.");
     }
   }
 
   async function fetchRecentTimeEntries(subtaskId) {
     try {
-      recentTimeEntries.value = await $api("/ticktask/user/get-time-entries/", {
-        method: "POST",
-        body: { subtask_id: subtaskId, last_hours: 24 },
-      });
+      recentTimeEntries.value = await getTimeEntries(subtaskId, 24);
     } catch (err) {
       console.error("Error fetching recent time entries:", err);
       recentTimeEntries.value = [];
@@ -421,6 +409,7 @@
   function handleTaskCreated(task) {
     tasks.value.push({ ...task, subtasks: task.subtasks ?? [] });
     expanded.value = [...expanded.value, task.id];
+    toast.success(`Task "${task.name}" created.`);
   }
 
   function openAddSubTaskDialog(task) {
@@ -437,6 +426,7 @@
         ...newSubtask,
         time_entries: newSubtask.time_entries ?? [],
       });
+    toast.success(`Subtask "${newSubtask.name}" created.`);
   }
 
   function resetTracker() {
@@ -466,32 +456,29 @@
     try {
       const { kind, task, subtask } = pendingDelete.value;
       if (kind === "task") {
-        await $api("/ticktask/user/delete-task/", {
-          method: "POST",
-          body: { task_id: task.id },
-        });
+        await apiDeleteTask(task.id);
         tasks.value = tasks.value.filter((t) => t.id !== task.id);
         if (selectedTask.value?.id === task.id) {
           selectedTask.value = null;
           selectedSubtask.value = null;
         }
         if (activeTask.value?.id === task.id) resetTracker();
+        toast.success(`Task "${task.name}" deleted.`);
       } else {
-        await $api("/ticktask/user/delete-subtask/", {
-          method: "POST",
-          body: { subtask_id: subtask.id },
-        });
+        await apiDeleteSubtask(subtask.id);
         const parent = tasks.value.find((t) => t.id === task.id);
         if (parent)
           parent.subtasks = parent.subtasks.filter((s) => s.id !== subtask.id);
-        if (selectedSubtask.value?.id === subtask.id) selectedSubtask.value = null;
+        if (selectedSubtask.value?.id === subtask.id)
+          selectedSubtask.value = null;
         if (activeSubTask.value?.id === subtask.id) resetTracker();
+        toast.success(`Subtask "${subtask.name}" deleted.`);
       }
       confirmOpen.value = false;
       pendingDelete.value = null;
     } catch (err) {
       console.error("Error deleting:", err);
-      alert(err?.data?.detail || "Couldn't delete. Please try again.");
+      toast.error(err?.data?.detail || "Couldn't delete. Please try again.");
     } finally {
       confirmLoading.value = false;
     }

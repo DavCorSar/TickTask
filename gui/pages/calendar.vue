@@ -3,7 +3,9 @@
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Calendar</h1>
-        <p class="mt-1 text-muted-foreground">Your tracked time and scheduled events.</p>
+        <p class="mt-1 text-muted-foreground">
+          Your tracked time and scheduled events.
+        </p>
       </div>
       <div class="flex items-center gap-4">
         <label
@@ -14,7 +16,9 @@
             class="size-4 rounded border-border accent-primary" />
           Show deleted
         </label>
-        <UiButton icon="lucide:plus" @click="openCreate(new Date())">New event</UiButton>
+        <UiButton icon="lucide:plus" @click="openCreate(new Date())"
+          >New event</UiButton
+        >
       </div>
     </div>
 
@@ -22,11 +26,21 @@
       <!-- Toolbar -->
       <div class="mb-4 flex items-center justify-between gap-3">
         <div class="flex items-center gap-2">
-          <UiButton variant="outline" size="icon" icon="lucide:chevron-left" @click="prevMonth" />
-          <UiButton variant="outline" size="icon" icon="lucide:chevron-right" @click="nextMonth" />
+          <UiButton
+            variant="outline"
+            size="icon"
+            icon="lucide:chevron-left"
+            @click="prevMonth" />
+          <UiButton
+            variant="outline"
+            size="icon"
+            icon="lucide:chevron-right"
+            @click="nextMonth" />
           <UiButton variant="ghost" size="sm" @click="goToday">Today</UiButton>
         </div>
-        <h2 class="text-lg font-semibold capitalize">{{ monthLabel(cursor) }}</h2>
+        <h2 class="text-lg font-semibold capitalize">
+          {{ monthLabel(cursor) }}
+        </h2>
         <div class="w-[88px]"></div>
       </div>
 
@@ -45,7 +59,9 @@
         <div
           v-if="loading"
           class="absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
-          <Icon name="lucide:loader-circle" class="size-6 animate-spin text-muted-foreground" />
+          <Icon
+            name="lucide:loader-circle"
+            class="size-6 animate-spin text-muted-foreground" />
         </div>
 
         <div
@@ -122,7 +138,8 @@
     layout: "defaultlogged",
   });
 
-  const { $api } = useNuxtApp();
+  const { getCalendar } = useCalendar();
+  const toast = useToast();
 
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -189,21 +206,19 @@
         last.getDate(),
         23,
         59,
-        59
+        59,
       );
 
-      const res = await $api("/calendar/user/get-calendar/", {
-        method: "GET",
-        query: {
-          start: first.toISOString(),
-          end: rangeEnd.toISOString(),
-          include_deleted: includeDeleted.value,
-        },
-      });
+      const res = await getCalendar(
+        first.toISOString(),
+        rangeEnd.toISOString(),
+        includeDeleted.value,
+      );
       events.value = res.events;
       timeEntries.value = res.time_entries;
     } catch (err) {
       console.error("Error loading calendar:", err);
+      toast.error("Couldn't load the calendar.");
     } finally {
       loading.value = false;
     }

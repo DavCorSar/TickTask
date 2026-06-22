@@ -17,10 +17,6 @@
       </label>
     </div>
 
-    <UiAlert v-if="error" variant="danger">
-      Couldn't load your dashboard. Please try again.
-    </UiAlert>
-
     <!-- Stat cards -->
     <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
       <DashboardStatCard
@@ -101,14 +97,16 @@
     layout: "defaultlogged",
   });
 
-  const { $api } = useNuxtApp();
+  const { getSummary, getTimeSeries } = useDashboard();
+  const { restoreTask: apiRestoreTask, restoreSubtask: apiRestoreSubtask } =
+    useTasks();
+  const toast = useToast();
 
   const bucket = ref("day");
   const includeDeleted = ref(false);
   const summary = ref(null);
   const series = ref(null);
   const seriesLoading = ref(false);
-  const error = ref(false);
 
   const statCards = computed(() => {
     const s = summary.value;
@@ -150,13 +148,10 @@
 
   async function loadSummary() {
     try {
-      summary.value = await $api("/dashboard/user/get-summary/", {
-        method: "GET",
-        query: { include_deleted: includeDeleted.value },
-      });
+      summary.value = await getSummary(includeDeleted.value);
     } catch (err) {
       console.error("Error loading dashboard summary:", err);
-      error.value = true;
+      toast.error("Couldn't load the dashboard summary.");
     }
   }
 
@@ -164,37 +159,40 @@
     seriesLoading.value = true;
     try {
       const { start, end } = rangeForBucket(bucket.value);
-      series.value = await $api("/dashboard/user/get-time-series/", {
-        method: "GET",
-        query: {
-          start: start.toISOString(),
-          end: end.toISOString(),
-          bucket: bucket.value,
-          include_deleted: includeDeleted.value,
-        },
-      });
+      series.value = await getTimeSeries(
+        start.toISOString(),
+        end.toISOString(),
+        bucket.value,
+        includeDeleted.value,
+      );
     } catch (err) {
       console.error("Error loading dashboard series:", err);
-      error.value = true;
+      toast.error("Couldn't load the dashboard chart.");
     } finally {
       seriesLoading.value = false;
     }
   }
 
   async function restoreTask(taskId) {
-    await $api("/ticktask/user/restore-task/", {
-      method: "POST",
-      body: { task_id: taskId },
-    });
-    await Promise.all([loadSummary(), loadSeries()]);
+    try {
+      await apiRestoreTask(taskId);
+      toast.success("Task restored.");
+      await Promise.all([loadSummary(), loadSeries()]);
+    } catch (err) {
+      console.error("Error restoring task:", err);
+      toast.error("Couldn't restore the task.");
+    }
   }
 
   async function restoreSubtask(subtaskId) {
-    await $api("/ticktask/user/restore-subtask/", {
-      method: "POST",
-      body: { subtask_id: subtaskId },
-    });
-    await Promise.all([loadSummary(), loadSeries()]);
+    try {
+      await apiRestoreSubtask(subtaskId);
+      toast.success("Subtask restored.");
+      await Promise.all([loadSummary(), loadSeries()]);
+    } catch (err) {
+      console.error("Error restoring subtask:", err);
+      toast.error("Couldn't restore the subtask.");
+    }
   }
 
   onMounted(loadSummary);

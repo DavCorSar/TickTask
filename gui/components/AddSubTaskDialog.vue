@@ -36,7 +36,7 @@
 
   const emit = defineEmits(["update:modelValue", "subtask-created"]);
 
-  const { $api } = useNuxtApp();
+  const { createSubtask } = useTasks();
 
   const dialog = ref(props.modelValue);
   const subtaskName = ref("");
@@ -67,14 +67,11 @@
 
     loading.value = true;
     try {
-      const response = await $api("/ticktask/user/create-subtask/", {
-        method: "POST",
-        body: {
-          name: subtaskName.value.trim(),
-          description: subtaskDescription.value.trim(),
-          task_id: props.taskId,
-        },
-      });
+      const response = await createSubtask(
+        props.taskId,
+        subtaskName.value.trim(),
+        subtaskDescription.value.trim(),
+      );
 
       emit("subtask-created", response);
       dialog.value = false;

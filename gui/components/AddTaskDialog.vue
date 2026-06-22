@@ -29,7 +29,7 @@
 
   const emit = defineEmits(["update:modelValue", "task-created"]);
 
-  const { $api } = useNuxtApp();
+  const { createTask } = useTasks();
 
   const dialog = ref(props.modelValue);
   const taskName = ref("");
@@ -57,10 +57,7 @@
 
     loading.value = true;
     try {
-      const response = await $api("/ticktask/user/create-task/", {
-        method: "POST",
-        body: { name: taskName.value.trim() },
-      });
+      const response = await createTask(taskName.value.trim());
 
       emit("task-created", response);
       dialog.value = false;
