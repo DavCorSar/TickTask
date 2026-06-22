@@ -48,52 +48,69 @@
               v-for="task in tasks"
               :key="task.id"
               class="overflow-hidden rounded-xl border border-border">
-              <button
-                class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted"
-                @click="toggleExpand(task.id)">
-                <Icon
-                  name="lucide:chevron-right"
-                  class="size-4 text-muted-foreground transition-transform"
-                  :class="{ 'rotate-90': isExpanded(task.id) }" />
-                <Icon name="lucide:folder" class="size-[18px] text-primary" />
-                <span class="flex-1 font-medium">{{ task.name }}</span>
-                <span
-                  class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                  {{ task.subtasks.length }} subtask{{
-                    task.subtasks.length === 1 ? "" : "s"
-                  }}
-                </span>
-              </button>
+              <div class="flex items-center">
+                <button
+                  class="flex flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted"
+                  @click="toggleExpand(task.id)">
+                  <Icon
+                    name="lucide:chevron-right"
+                    class="size-4 text-muted-foreground transition-transform"
+                    :class="{ 'rotate-90': isExpanded(task.id) }" />
+                  <Icon name="lucide:folder" class="size-[18px] text-primary" />
+                  <span class="flex-1 font-medium">{{ task.name }}</span>
+                  <span
+                    class="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    {{ task.subtasks.length }} subtask{{
+                      task.subtasks.length === 1 ? "" : "s"
+                    }}
+                  </span>
+                </button>
+                <button
+                  class="px-3 py-3 text-muted-foreground transition-colors hover:text-danger"
+                  title="Delete task"
+                  @click="askDeleteTask(task)">
+                  <Icon name="lucide:trash-2" class="size-4" />
+                </button>
+              </div>
 
               <div
                 v-if="isExpanded(task.id)"
                 class="border-t border-border bg-background/40 px-3 py-2">
-                <button
+                <div
                   v-for="subtask in task.subtasks"
                   :key="subtask.id"
-                  class="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors"
+                  class="group flex items-center gap-1 rounded-lg transition-colors"
                   :class="
                     isSelected(task, subtask)
                       ? 'bg-primary/10 text-primary'
                       : 'hover:bg-muted'
-                  "
-                  @click="selectSubtask(subtask, task)">
-                  <Icon
-                    :name="
-                      isSelected(task, subtask)
-                        ? 'lucide:circle-check-big'
-                        : 'lucide:circle'
-                    "
-                    class="size-[18px] shrink-0" />
-                  <span class="flex-1">
-                    <span class="font-medium">{{ subtask.name }}</span>
-                    <span
-                      v-if="subtask.description"
-                      class="ml-2 text-muted-foreground"
-                      >{{ subtask.description }}</span
-                    >
-                  </span>
-                </button>
+                  ">
+                  <button
+                    class="flex flex-1 items-center gap-3 px-3 py-2.5 text-left text-sm"
+                    @click="selectSubtask(subtask, task)">
+                    <Icon
+                      :name="
+                        isSelected(task, subtask)
+                          ? 'lucide:circle-check-big'
+                          : 'lucide:circle'
+                      "
+                      class="size-[18px] shrink-0" />
+                    <span class="flex-1">
+                      <span class="font-medium">{{ subtask.name }}</span>
+                      <span
+                        v-if="subtask.description"
+                        class="ml-2 text-muted-foreground"
+                        >{{ subtask.description }}</span
+                      >
+                    </span>
+                  </button>
+                  <button
+                    class="px-2.5 py-2.5 text-muted-foreground opacity-0 transition-opacity hover:text-danger focus:opacity-100 group-hover:opacity-100"
+                    title="Delete subtask"
+                    @click="askDeleteSubtask(task, subtask)">
+                    <Icon name="lucide:trash-2" class="size-4" />
+                  </button>
+                </div>
 
                 <p
                   v-if="!task.subtasks.length"
@@ -209,6 +226,14 @@
       v-model="dialogAddSubTaskVisible"
       :task-id="currentTaskForSubtask.id"
       @subtask-created="handleSubTaskCreated" />
+
+    <UiConfirmDialog
+      v-model="confirmOpen"
+      title="Delete"
+      :message="confirmMessage"
+      confirm-label="Delete"
+      :loading="confirmLoading"
+      @confirm="confirmDelete" />
   </div>
 </template>
 
@@ -242,6 +267,25 @@
   const dialogAddTaskVisible = ref(false);
   const dialogAddSubTaskVisible = ref(false);
   const currentTaskForSubtask = ref(null);
+
+  const confirmOpen = ref(false);
+  const confirmLoading = ref(false);
+  const pendingDelete = ref(null);
+
+  const confirmMessage = computed(() => {
+    if (!pendingDelete.value) return "";
+    if (pendingDelete.value.kind === "task") {
+      return (
+        `Delete "${pendingDelete.value.task.name}"? It disappears from time ` +
+        "tracking but its tracked time stays on the dashboard and calendar, " +
+        "and you can restore it later."
+      );
+    }
+    return (
+      `Delete subtask "${pendingDelete.value.subtask.name}"? It disappears ` +
+      "from time tracking but its tracked time is kept, and you can restore it later."
+    );
+  });
 
   onMounted(async () => {
     loadingTasks.value = true;
@@ -393,6 +437,64 @@
         ...newSubtask,
         time_entries: newSubtask.time_entries ?? [],
       });
+  }
+
+  function resetTracker() {
+    isClockedIn.value = false;
+    if (clockInterval) clearInterval(clockInterval);
+    clockInTime.value = null;
+    clockInDuration.value = "00:00:00";
+    activeTimeEntryId.value = null;
+    activeTask.value = null;
+    activeSubTask.value = null;
+    recentTimeEntries.value = [];
+  }
+
+  function askDeleteTask(task) {
+    pendingDelete.value = { kind: "task", task };
+    confirmOpen.value = true;
+  }
+
+  function askDeleteSubtask(task, subtask) {
+    pendingDelete.value = { kind: "subtask", task, subtask };
+    confirmOpen.value = true;
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete.value || confirmLoading.value) return;
+    confirmLoading.value = true;
+    try {
+      const { kind, task, subtask } = pendingDelete.value;
+      if (kind === "task") {
+        await $api("/ticktask/user/delete-task/", {
+          method: "POST",
+          body: { task_id: task.id },
+        });
+        tasks.value = tasks.value.filter((t) => t.id !== task.id);
+        if (selectedTask.value?.id === task.id) {
+          selectedTask.value = null;
+          selectedSubtask.value = null;
+        }
+        if (activeTask.value?.id === task.id) resetTracker();
+      } else {
+        await $api("/ticktask/user/delete-subtask/", {
+          method: "POST",
+          body: { subtask_id: subtask.id },
+        });
+        const parent = tasks.value.find((t) => t.id === task.id);
+        if (parent)
+          parent.subtasks = parent.subtasks.filter((s) => s.id !== subtask.id);
+        if (selectedSubtask.value?.id === subtask.id) selectedSubtask.value = null;
+        if (activeSubTask.value?.id === subtask.id) resetTracker();
+      }
+      confirmOpen.value = false;
+      pendingDelete.value = null;
+    } catch (err) {
+      console.error("Error deleting:", err);
+      alert(err?.data?.detail || "Couldn't delete. Please try again.");
+    } finally {
+      confirmLoading.value = false;
+    }
   }
 
   onBeforeUnmount(() => {

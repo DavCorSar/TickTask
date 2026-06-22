@@ -85,7 +85,14 @@
             backgroundColor: entry.color,
             opacity: entry.hidden ? 0.3 : 1,
           }"></span>
-        <span :class="{ 'line-through': entry.hidden }">{{ entry.name }}</span>
+        <span :class="{ 'line-through': entry.hidden || entry.deleted }">{{
+          entry.name
+        }}</span>
+        <span
+          v-if="entry.deleted"
+          class="text-[10px] uppercase tracking-wide text-muted-foreground"
+          >(deleted)</span
+        >
         <span class="text-muted-foreground">{{
           formatHours(entry.hours)
         }}</span>
@@ -122,6 +129,7 @@
       taskId: task.task_id,
       name: task.task_name,
       hours: task.hours,
+      deleted: task.deleted,
       color: chartColor(index),
       hidden: hidden.has(task.task_id),
     })),

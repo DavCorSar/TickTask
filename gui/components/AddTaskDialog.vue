@@ -65,7 +65,8 @@
       emit("task-created", response);
       dialog.value = false;
     } catch (err) {
-      error.value = "Couldn't create the task. Does it already exist?";
+      error.value =
+        err?.data?.detail || "Couldn't create the task. Does it already exist?";
       console.error("Error creating task:", err);
     } finally {
       loading.value = false;

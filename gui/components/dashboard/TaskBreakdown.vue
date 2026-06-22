@@ -18,10 +18,25 @@
 
         <span
           class="size-2.5 shrink-0 rounded-full"
-          :style="{ backgroundColor: chartColor(index) }"></span>
-        <span class="min-w-0 flex-1 truncate text-sm font-medium">{{
-          task.task_name
-        }}</span>
+          :style="{ backgroundColor: chartColor(index) }"
+          :class="{ 'opacity-40': task.deleted }"></span>
+        <span
+          class="min-w-0 flex-1 truncate text-sm font-medium"
+          :class="{ 'text-muted-foreground line-through': task.deleted }">
+          {{ task.task_name }}
+        </span>
+        <span
+          v-if="task.deleted"
+          class="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          deleted
+        </span>
+        <button
+          v-if="task.deleted"
+          class="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+          title="Restore task"
+          @click="emit('restore-task', task.task_id)">
+          <Icon name="lucide:rotate-ccw" class="size-4" />
+        </button>
         <span class="shrink-0 text-sm font-semibold tabular-nums">
           {{ formatHours(task.hours) }}
         </span>
@@ -41,9 +56,18 @@
           v-for="subtask in task.subtasks"
           :key="subtask.subtask_id"
           class="flex items-center gap-3">
-          <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          <span
+            class="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+            :class="{ 'line-through': subtask.deleted }">
             {{ subtask.subtask_name }}
           </span>
+          <button
+            v-if="subtask.deleted"
+            class="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-primary"
+            title="Restore subtask"
+            @click="emit('restore-subtask', subtask.subtask_id)">
+            <Icon name="lucide:rotate-ccw" class="size-3.5" />
+          </button>
           <div
             class="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
             <div
@@ -70,6 +94,8 @@
   const props = defineProps({
     tasks: { type: Array, default: () => [] },
   });
+
+  const emit = defineEmits(["restore-task", "restore-subtask"]);
 
   const expanded = reactive(new Set());
 

@@ -1,10 +1,20 @@
 <template>
   <div class="mx-auto max-w-6xl space-y-6">
-    <div>
-      <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Dashboard</h1>
-      <p class="mt-1 text-muted-foreground">
-        Hours spent across your tasks and subtasks.
-      </p>
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight sm:text-3xl">Dashboard</h1>
+        <p class="mt-1 text-muted-foreground">
+          Hours spent across your tasks and subtasks.
+        </p>
+      </div>
+      <label
+        class="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
+        <input
+          v-model="includeDeleted"
+          type="checkbox"
+          class="size-4 rounded border-border accent-primary" />
+        Show deleted
+      </label>
     </div>
 
     <UiAlert v-if="error" variant="danger">
@@ -72,7 +82,10 @@
               name="lucide:loader-circle"
               class="size-6 animate-spin text-muted-foreground" />
           </div>
-          <DashboardTaskBreakdown :tasks="series?.by_task || []" />
+          <DashboardTaskBreakdown
+            :tasks="series?.by_task || []"
+            @restore-task="restoreTask"
+            @restore-subtask="restoreSubtask" />
         </div>
       </UiCard>
     </div>
@@ -91,6 +104,7 @@
   const { $api } = useNuxtApp();
 
   const bucket = ref("day");
+  const includeDeleted = ref(false);
   const summary = ref(null);
   const series = ref(null);
   const seriesLoading = ref(false);
@@ -138,6 +152,7 @@
     try {
       summary.value = await $api("/dashboard/user/get-summary/", {
         method: "GET",
+        query: { include_deleted: includeDeleted.value },
       });
     } catch (err) {
       console.error("Error loading dashboard summary:", err);
@@ -155,6 +170,7 @@
           start: start.toISOString(),
           end: end.toISOString(),
           bucket: bucket.value,
+          include_deleted: includeDeleted.value,
         },
       });
     } catch (err) {
@@ -165,6 +181,23 @@
     }
   }
 
+  async function restoreTask(taskId) {
+    await $api("/ticktask/user/restore-task/", {
+      method: "POST",
+      body: { task_id: taskId },
+    });
+    await Promise.all([loadSummary(), loadSeries()]);
+  }
+
+  async function restoreSubtask(subtaskId) {
+    await $api("/ticktask/user/restore-subtask/", {
+      method: "POST",
+      body: { subtask_id: subtaskId },
+    });
+    await Promise.all([loadSummary(), loadSeries()]);
+  }
+
   onMounted(loadSummary);
   watch(bucket, loadSeries, { immediate: true });
+  watch(includeDeleted, () => Promise.all([loadSummary(), loadSeries()]));
 </script>
