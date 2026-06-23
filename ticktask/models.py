@@ -177,6 +177,39 @@ class UserTelegramSettings(models.Model):
         return bool(self.chat_id)
 
 
+class UserAccessRequest(models.Model):
+    """
+    Gate for self-service signup: each new account starts here as ``pending``
+    and stays inactive until an admin approves it. The user learns the outcome
+    when they try to log in (no push needed); admins decide from the Django
+    admin or the Telegram approve/reject buttons.
+    """
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    STATUS_CHOICES = [
+        (PENDING, "Pending"),
+        (APPROVED, "Approved"),
+        (REJECTED, "Rejected"),
+    ]
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="access_request"
+    )
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+    decided_at = models.DateTimeField(null=True, blank=True, default=None)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    @property
+    def is_pending(self) -> bool:
+        """Whether the request is still awaiting a decision."""
+        return self.status == self.PENDING
+
+
 class SentReminder(models.Model):
     """
     Records that a reminder of a given ``kind`` ("lead" / "start") was already
