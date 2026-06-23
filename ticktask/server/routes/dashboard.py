@@ -19,6 +19,7 @@ from ninja_jwt.authentication import JWTAuth
 from ticktask.server.schemas.dashboard_schema import (
     DashboardSummarySchema,
     TimeSeriesSchema,
+    WeeklyTaskHoursSchema,
 )
 
 try:
@@ -127,6 +128,71 @@ def get_summary(request, include_deleted: bool = False):
         "month_hours": _hours(month),
         "total_hours": _hours(total),
         "active_tasks": active_tasks,
+    }
+
+
+@dashboard_router.get(
+    "/user/get-weekly-task-hours/",
+    response=WeeklyTaskHoursSchema,
+    tags=["Dashboard"],
+    auth=JWTAuth(),
+)
+def get_weekly_task_hours(request, include_deleted: bool = False):
+    """
+    Returns the hours tracked per task over the trailing 7 days, with each
+    task's share (``percent``) of the total tracked that week. Only tasks with
+    time in the window are returned (sorted by hours, most first); soft-deleted
+    tasks/subtasks are excluded unless ``include_deleted`` is set.
+    """
+    now = timezone.now()
+    start = now - timedelta(days=7)
+
+    entries = _filter_deleted(
+        TimeEntry.objects.select_related("subtask__task").filter(  # pylint: disable=no-member
+            subtask__task__user=request.auth,
+            clock_out__isnull=False,
+            clock_in__gte=start,
+            clock_in__lte=now,
+        ),
+        include_deleted,
+    )
+
+    totals: dict[int, dict] = {}
+    grand = timedelta()
+    for entry in entries:
+        duration = entry.clock_out - entry.clock_in
+        grand += duration
+        task = entry.subtask.task
+        agg = totals.setdefault(
+            task.id,
+            {"name": task.name, "deleted": task.is_deleted, "total": timedelta()},
+        )
+        agg["total"] += duration
+
+    grand_seconds = grand.total_seconds()
+    tasks = [
+        {
+            "task_id": task_id,
+            "task_name": agg["name"],
+            "deleted": agg["deleted"],
+            "hours": _hours(agg["total"]),
+            "percent": (
+                round(agg["total"].total_seconds() / grand_seconds * 100, 1)
+                if grand_seconds
+                else 0.0
+            ),
+        }
+        for task_id, agg in sorted(
+            totals.items(),
+            key=lambda kv: (-kv[1]["total"].total_seconds(), kv[1]["name"].lower()),
+        )
+    ]
+
+    return {
+        "start": start,
+        "end": now,
+        "total_hours": _hours(grand),
+        "tasks": tasks,
     }
 
 
