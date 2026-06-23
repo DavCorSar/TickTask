@@ -14,5 +14,11 @@ export function useDashboard() {
         method: "GET",
         query: { start, end, bucket, include_deleted: includeDeleted },
       }),
+
+    getWeeklyTaskHours: (includeDeleted = false) =>
+      $api("/dashboard/user/get-weekly-task-hours/", {
+        method: "GET",
+        query: { include_deleted: includeDeleted },
+      }),
   };
 }

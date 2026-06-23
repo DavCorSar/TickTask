@@ -68,3 +68,29 @@ class TimeSeriesSchema(Schema):
     end: datetime
     buckets: list[TimeSeriesBucketSchema]
     by_task: list[TaskHoursSchema]
+
+
+class WeeklyTaskShareSchema(Schema):
+    """
+    One task's tracked hours over the last week and its share (``percent``) of
+    the total time tracked that week.
+    """
+
+    task_id: int
+    task_name: str
+    hours: float
+    percent: float
+    deleted: bool = False
+
+
+class WeeklyTaskHoursSchema(Schema):
+    """
+    Per-task tracked hours over the trailing 7 days, each as a share of the
+    week's total. Only tasks with time tracked in the window are included, so
+    the shares add up to ~100% of what was actually tracked.
+    """
+
+    start: datetime
+    end: datetime
+    total_hours: float
+    tasks: list[WeeklyTaskShareSchema]

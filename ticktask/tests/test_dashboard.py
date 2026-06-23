@@ -49,6 +49,67 @@ def iso(dt: datetime) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Weekly task hours (share of the last 7 days)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_weekly_task_hours_shares():
+    """Each task's hours and its percent of the week's total are returned."""
+    user = make_user()
+    now = dj_timezone.now()
+    a = make_subtask(user, "Alpha", "s")
+    b = make_subtask(user, "Beta", "s")
+    # 3h on Alpha and 1h on Beta, both within the last 7 days → 75% / 25%.
+    make_entry(a, now - timedelta(days=1), now - timedelta(days=1) + timedelta(hours=3))
+    make_entry(b, now - timedelta(days=2), now - timedelta(days=2) + timedelta(hours=1))
+
+    body = auth_client(user).get(f"{BASE}/get-weekly-task-hours/").json()
+
+    assert body["total_hours"] == 4.0
+    names = [t["task_name"] for t in body["tasks"]]
+    assert names == ["Alpha", "Beta"]  # sorted by hours, most first
+    by_name = {t["task_name"]: t for t in body["tasks"]}
+    assert by_name["Alpha"]["hours"] == 3.0 and by_name["Alpha"]["percent"] == 75.0
+    assert by_name["Beta"]["percent"] == 25.0
+
+
+@pytest.mark.django_db
+def test_weekly_task_hours_excludes_old_and_untracked():
+    """Entries older than 7 days and tasks with no recent time are left out."""
+    user = make_user()
+    now = dj_timezone.now()
+    recent = make_subtask(user, "Recent", "s")
+    old = make_subtask(user, "Old", "s")
+    make_entry(recent, now - timedelta(hours=2), now - timedelta(hours=1))
+    make_entry(old, now - timedelta(days=10), now - timedelta(days=10) + timedelta(hours=5))
+
+    body = auth_client(user).get(f"{BASE}/get-weekly-task-hours/").json()
+
+    assert [t["task_name"] for t in body["tasks"]] == ["Recent"]
+    assert body["tasks"][0]["percent"] == 100.0
+
+
+@pytest.mark.django_db
+def test_weekly_task_hours_excludes_deleted_by_default():
+    """Soft-deleted tasks are hidden unless include_deleted is set."""
+    user = make_user()
+    now = dj_timezone.now()
+    sub = make_subtask(user, "Gone", "s")
+    make_entry(sub, now - timedelta(hours=2), now - timedelta(hours=1))
+    Task.objects.filter(name="Gone", user=user).update(deleted_at=now)  # pylint: disable=no-member
+
+    client = auth_client(user)
+    assert client.get(f"{BASE}/get-weekly-task-hours/").json()["tasks"] == []
+
+    with_deleted = client.get(
+        f"{BASE}/get-weekly-task-hours/", {"include_deleted": "true"}
+    ).json()
+    assert [t["task_name"] for t in with_deleted["tasks"]] == ["Gone"]
+    assert with_deleted["tasks"][0]["deleted"] is True
+
+
+# --------------------------------------------------------------------------- #
 # Summary
 # --------------------------------------------------------------------------- #
 
