@@ -85,6 +85,20 @@
         </div>
       </UiCard>
     </div>
+
+    <!-- Share of the last 7 days, per task -->
+    <UiCard title="This week by task" subtitle="Share of time tracked in the last 7 days">
+      <div class="relative min-h-[200px]">
+        <div
+          v-if="weeklyLoading"
+          class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
+          <Icon
+            name="lucide:loader-circle"
+            class="size-6 animate-spin text-muted-foreground" />
+        </div>
+        <DashboardWeeklyShare :tasks="weekly?.tasks || []" />
+      </div>
+    </UiCard>
   </div>
 </template>
 
@@ -97,7 +111,7 @@
     layout: "defaultlogged",
   });
 
-  const { getSummary, getTimeSeries } = useDashboard();
+  const { getSummary, getTimeSeries, getWeeklyTaskHours } = useDashboard();
   const { restoreTask: apiRestoreTask, restoreSubtask: apiRestoreSubtask } =
     useTasks();
   const toast = useToast();
@@ -107,6 +121,8 @@
   const summary = ref(null);
   const series = ref(null);
   const seriesLoading = ref(false);
+  const weekly = ref(null);
+  const weeklyLoading = ref(false);
 
   const statCards = computed(() => {
     const s = summary.value;
@@ -155,6 +171,18 @@
     }
   }
 
+  async function loadWeekly() {
+    weeklyLoading.value = true;
+    try {
+      weekly.value = await getWeeklyTaskHours(includeDeleted.value);
+    } catch (err) {
+      console.error("Error loading weekly task hours:", err);
+      toast.error("Couldn't load this week's breakdown.");
+    } finally {
+      weeklyLoading.value = false;
+    }
+  }
+
   async function loadSeries() {
     seriesLoading.value = true;
     try {
@@ -177,7 +205,7 @@
     try {
       await apiRestoreTask(taskId);
       toast.success("Task restored.");
-      await Promise.all([loadSummary(), loadSeries()]);
+      await Promise.all([loadSummary(), loadSeries(), loadWeekly()]);
     } catch (err) {
       console.error("Error restoring task:", err);
       toast.error("Couldn't restore the task.");
@@ -188,14 +216,16 @@
     try {
       await apiRestoreSubtask(subtaskId);
       toast.success("Subtask restored.");
-      await Promise.all([loadSummary(), loadSeries()]);
+      await Promise.all([loadSummary(), loadSeries(), loadWeekly()]);
     } catch (err) {
       console.error("Error restoring subtask:", err);
       toast.error("Couldn't restore the subtask.");
     }
   }
 
-  onMounted(loadSummary);
+  onMounted(() => Promise.all([loadSummary(), loadWeekly()]));
   watch(bucket, loadSeries, { immediate: true });
-  watch(includeDeleted, () => Promise.all([loadSummary(), loadSeries()]));
+  watch(includeDeleted, () =>
+    Promise.all([loadSummary(), loadSeries(), loadWeekly()]),
+  );
 </script>
