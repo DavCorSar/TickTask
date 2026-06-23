@@ -18,18 +18,35 @@
           class="flex size-12 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-soft">
           <Icon name="lucide:timer" class="size-6" />
         </div>
-        <h1 class="mt-4 text-2xl font-bold tracking-tight">Welcome back</h1>
+        <h1 class="mt-4 text-2xl font-bold tracking-tight">
+          Create your account
+        </h1>
         <p class="mt-1 text-sm text-muted-foreground">
-          Log in to your TickTask account
+          Start tracking your time with TickTask
         </p>
       </div>
 
       <div class="card-surface p-6 shadow-card">
-        <form class="space-y-4" @submit.prevent="login">
+        <!-- Submitted: account is queued for approval -->
+        <div
+          v-if="submitted"
+          class="flex flex-col items-center gap-3 py-4 text-center">
+          <div
+            class="flex size-12 items-center justify-center rounded-2xl bg-accent/15 text-accent">
+            <Icon name="lucide:mail-check" class="size-6" />
+          </div>
+          <p class="font-medium">Request submitted</p>
+          <p class="text-sm text-muted-foreground">{{ submitted }}</p>
+          <UiButton to="/login" variant="ghost" size="sm" class="mt-2">
+            Back to log in
+          </UiButton>
+        </div>
+
+        <form v-else class="space-y-4" @submit.prevent="register">
           <UiInput
             v-model="username"
             label="Username"
-            placeholder="your username"
+            placeholder="choose a username"
             icon="lucide:user"
             autocomplete="username"
             autofocus />
@@ -40,26 +57,35 @@
             type="password"
             placeholder="••••••••"
             icon="lucide:lock"
-            autocomplete="current-password"
+            autocomplete="new-password"
+            revealable />
+
+          <UiInput
+            v-model="confirmPassword"
+            label="Confirm password"
+            type="password"
+            placeholder="••••••••"
+            icon="lucide:lock"
+            autocomplete="new-password"
             revealable
-            @enter="login" />
+            @enter="register" />
 
           <UiAlert v-if="errorMessage" variant="danger">{{
             errorMessage
           }}</UiAlert>
 
           <UiButton type="submit" block size="lg" :loading="loading"
-            >Log in</UiButton
+            >Sign up</UiButton
           >
         </form>
       </div>
 
       <p class="mt-6 text-center text-sm text-muted-foreground">
-        Don't have an account?
+        Already have an account?
         <NuxtLink
-          to="/signup"
+          to="/login"
           class="font-medium text-primary transition-colors hover:underline">
-          Sign up
+          Log in
         </NuxtLink>
       </p>
 
@@ -76,33 +102,36 @@
 
 <script setup>
   import { ref } from "vue";
-  import { useRouter } from "vue-router";
 
   definePageMeta({ layout: "blank" });
 
   const auth = useAuth();
-  const router = useRouter();
 
   const username = ref("");
   const password = ref("");
+  const confirmPassword = ref("");
   const errorMessage = ref("");
+  const submitted = ref("");
   const loading = ref(false);
 
-  const login = async () => {
+  const register = async () => {
     if (loading.value) return;
     errorMessage.value = "";
 
     if (!username.value || !password.value) {
-      errorMessage.value = "Please enter your username and password.";
+      errorMessage.value = "Please enter a username and password.";
+      return;
+    }
+    if (password.value !== confirmPassword.value) {
+      errorMessage.value = "The passwords don't match.";
       return;
     }
 
     loading.value = true;
     try {
-      const success = await auth.login(username.value, password.value);
-      if (success) router.push("/home");
+      submitted.value = await auth.register(username.value, password.value);
     } catch (error) {
-      errorMessage.value = error.message || "Incorrect username or password.";
+      errorMessage.value = error.message || "Couldn't create your account.";
     } finally {
       loading.value = false;
     }

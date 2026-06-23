@@ -7,6 +7,7 @@ rather than in the user-facing UI.
 from django.contrib import admin
 from django.utils import timezone
 
+from ticktask import services
 from ticktask.models import (
     UserLoginRecord,
     Task,
@@ -14,6 +15,7 @@ from ticktask.models import (
     TimeEntry,
     CalendarEvent,
     UserTelegramSettings,
+    UserAccessRequest,
 )
 
 
@@ -114,6 +116,33 @@ class UserTelegramSettingsAdmin(admin.ModelAdmin):
     def connected(self, obj):
         """Whether a Telegram chat is linked."""
         return obj.connected
+
+
+@admin.action(description="Approve selected (activate accounts)")
+def approve_requests(modeladmin, request, queryset):
+    """Approves the selected pending requests and activates their accounts."""
+    for req in queryset.select_related("user"):
+        services.approve_access(req)
+
+
+@admin.action(description="Reject selected (keep accounts inactive)")
+def reject_requests(modeladmin, request, queryset):
+    """Rejects the selected requests, leaving their accounts deactivated."""
+    for req in queryset.select_related("user"):
+        services.reject_access(req)
+
+
+@admin.register(UserAccessRequest)
+class UserAccessRequestAdmin(admin.ModelAdmin):
+    """Review and approve/reject self-service signup requests."""
+
+    list_display = ("user", "status", "created_at", "decided_at")
+    list_filter = ("status",)
+    search_fields = ("user__username",)
+    ordering = ("-created_at",)
+    list_select_related = ("user",)
+    autocomplete_fields = ("user",)
+    actions = (approve_requests, reject_requests)
 
 
 @admin.register(UserLoginRecord)

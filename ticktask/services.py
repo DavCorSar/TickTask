@@ -14,7 +14,13 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from ticktask.models import Task, SubTask, TimeEntry, CalendarEvent
+from ticktask.models import (
+    Task,
+    SubTask,
+    TimeEntry,
+    CalendarEvent,
+    UserAccessRequest,
+)
 
 
 class ServiceError(Exception):
@@ -88,9 +94,7 @@ def create_subtask(user, task_id: int, name: str, description: str = "") -> SubT
                 "Ya existe una subtarea eliminada con ese nombre en esta tarea. "
                 "Restáurala en lugar de crear una nueva.",
             )
-        raise ServiceError(
-            409, "Ya existe una subtarea con ese nombre en esta tarea."
-        )
+        raise ServiceError(409, "Ya existe una subtarea con ese nombre en esta tarea.")
 
     return SubTask.objects.create(  # pylint: disable=no-member
         name=name, description=(description or "").strip(), task=task
@@ -179,6 +183,33 @@ def upcoming_events(user, days: int = 7, limit: int = 10):
             not_over_yet, user=user, start__lte=now + timedelta(days=days)
         ).order_by("start")[:limit]
     )
+
+
+# --------------------------------------------------------------------------- #
+# Access requests (self-service signup gate)
+# --------------------------------------------------------------------------- #
+
+
+def approve_access(req: UserAccessRequest) -> None:
+    """Approves a pending request and activates the account."""
+    req.status = UserAccessRequest.APPROVED
+    req.decided_at = timezone.now()
+    req.save(update_fields=["status", "decided_at"])
+    user = req.user
+    if not user.is_active:
+        user.is_active = True
+        user.save(update_fields=["is_active"])
+
+
+def reject_access(req: UserAccessRequest) -> None:
+    """Rejects a request and keeps the account deactivated."""
+    req.status = UserAccessRequest.REJECTED
+    req.decided_at = timezone.now()
+    req.save(update_fields=["status", "decided_at"])
+    user = req.user
+    if user.is_active:
+        user.is_active = False
+        user.save(update_fields=["is_active"])
 
 
 # --------------------------------------------------------------------------- #

@@ -7,32 +7,51 @@ export const useAuth = () => {
   const refreshToken = useState("refresh_token", () => null);
   const user = useState("user", () => null);
 
+  const setSession = (response) => {
+    if (!response.access || !response.refresh) {
+      throw new Error("Tokens were not received successfully");
+    }
+
+    accessToken.value = response.access;
+    refreshToken.value = response.refresh;
+    user.value = jwtDecode(response.access);
+
+    localStorage.setItem("access_token", accessToken.value);
+    localStorage.setItem("refresh_token", refreshToken.value);
+
+    scheduleTokenRefresh();
+  };
+
   const login = async (username, password) => {
     try {
       logout();
 
-      console.log("Login with: ", { username, password });
       const response = await $api("/auth/login", {
         method: "POST",
         body: { username, password },
       });
 
-      if (!response.access || !response.refresh) {
-        throw new Error("Tokens where not received successfully");
-      }
-
-      accessToken.value = response.access;
-      refreshToken.value = response.refresh;
-      user.value = jwtDecode(response.access);
-
-      localStorage.setItem("access_token", accessToken.value);
-      localStorage.setItem("refresh_token", refreshToken.value);
-
-      scheduleTokenRefresh();
-
+      setSession(response);
       return true;
     } catch (error) {
-      throw new Error("Invalid user or password");
+      // 403 = account exists but gated (pending/rejected): show the server's
+      // reason. Anything else stays a generic credentials message.
+      throw new Error(error?.data?.detail || "Invalid user or password");
+    }
+  };
+
+  // Registration is gated: it does not sign the user in, it queues the account
+  // for admin approval and returns the server's status message.
+  const register = async (username, password) => {
+    try {
+      const response = await $api("/auth/register", {
+        method: "POST",
+        body: { username, password },
+      });
+      return response.message || "Your request has been submitted.";
+    } catch (error) {
+      // Surface the server's reason (username taken, password too weak, …).
+      throw new Error(error?.data?.detail || "Couldn't create your account.");
     }
   };
 
@@ -85,6 +104,7 @@ export const useAuth = () => {
     refreshToken,
     user,
     login,
+    register,
     refresh,
     logout,
     isAuthenticated,

@@ -10,6 +10,15 @@ class LoginSchema(Schema):
     password: str
 
 
+class RegisterSchema(Schema):
+    """
+    Schema with the data needed to create a new account.
+    """
+
+    username: str
+    password: str
+
+
 class TokenSchema(Schema):
     """
     Schema that contains the information of
@@ -18,3 +27,13 @@ class TokenSchema(Schema):
 
     access: str
     refresh: str
+
+
+class RegisterResultSchema(Schema):
+    """
+    Outcome of a registration request. Accounts are gated, so registering does
+    not sign the user in; it queues the account for admin approval.
+    """
+
+    status: str
+    message: str

@@ -37,6 +37,10 @@ LINK_TOKEN_TTL_MINUTES = 15
 STATE_TTL_SECONDS = 300
 # How many rows the list commands / pickers show at most.
 LIST_LIMIT = 10
+# Header prefixed to messages about tasks that require an admin's attention
+# (currently approving access requests; more admin chores may use it later), so
+# they stand out from a user's own messages when both land in the same chat.
+ADMIN_PREFIX = "🛡️ ADMIN"
 
 # Commands advertised in Telegram's "/" menu.
 BOT_COMMANDS = [
@@ -194,9 +198,7 @@ def _handle_start(chat_id, text: str) -> None:
     if _user_for_chat(chat_id) is not None:
         _send_help(chat_id)
         return
-    _safe_send(
-        chat_id, "Open the link from TickTask settings to connect your account."
-    )
+    _safe_send(chat_id, "Open the link from TickTask settings to connect your account.")
 
 
 def _link_account(chat_id, token: str) -> None:
@@ -325,9 +327,7 @@ def _cmd_newsubtask(user, chat_id) -> None:
         _safe_send(chat_id, "You have no tasks yet. Create one with /newtask first.")
         return
     rows = [[(t.name, f"ci:news:{t.id}")] for t in tasks]
-    send_message(
-        chat_id, "Which task is the subtask for?", reply_markup=_inline(rows)
-    )
+    send_message(chat_id, "Which task is the subtask for?", reply_markup=_inline(rows))
 
 
 def _cmd_cancel(user, chat_id) -> None:
@@ -368,6 +368,10 @@ def _route_callback(user, chat_id, message_id, data: str) -> None:
     """Dispatches a callback by its compact ``data`` token."""
     parts = data.split(":")
     kind = parts[0]
+
+    if kind == "acc":  # approve/reject an access request (admins only)
+        _handle_access_decision(user, chat_id, message_id, parts)
+        return
 
     if kind == "co":  # clock out a specific entry
         _do_clock_out(chat_id, user, int(parts[1]), message_id=message_id)
@@ -494,6 +498,82 @@ def _handle_state_input(user, chat_id, state: dict, text: str) -> None:
         )
     else:
         _clear_state(chat_id)
+
+
+# --------------------------------------------------------------------------- #
+# Access requests (notify admins + approve/reject)
+# --------------------------------------------------------------------------- #
+
+
+def _admin_text(body: str) -> str:
+    """Prefixes a message that concerns an admin chore with the admin header."""
+    return f"{ADMIN_PREFIX} — {body}"
+
+
+def notify_admins_of_access_request(req) -> None:
+    """
+    Best-effort: messages every admin who has Telegram linked about a new access
+    request, with inline Approve / Reject buttons. No-op if the bot isn't
+    configured or no admin is connected.
+    """
+    if not is_configured():
+        return
+    from ticktask.models import User  # pylint: disable=import-outside-toplevel
+
+    admins = User.objects.filter(  # pylint: disable=no-member
+        is_superuser=True, telegram_settings__chat_id__isnull=False
+    ).select_related("telegram_settings")
+
+    text = _admin_text(f"🔔 New access request from “{req.user.username}”.")
+    markup = _inline(
+        [
+            [
+                ("✅ Approve", f"acc:approve:{req.id}"),
+                ("❌ Reject", f"acc:reject:{req.id}"),
+            ]
+        ]
+    )
+    for admin in admins:
+        _safe_send(admin.telegram_settings.chat_id, text, markup)
+
+
+def _handle_access_decision(user, chat_id, message_id, parts) -> None:
+    """Applies an approve/reject button tap, guarded to admins only."""
+    if not (user.is_superuser or user.is_staff):
+        _send_or_edit(chat_id, message_id, "⚠️ You're not allowed to do that.")
+        return
+    if len(parts) < 3:
+        return
+
+    from ticktask.models import UserAccessRequest  # pylint: disable=import-outside-toplevel
+
+    decision = parts[1]
+    req = (
+        UserAccessRequest.objects.select_related("user")  # pylint: disable=no-member
+        .filter(id=int(parts[2]))
+        .first()
+    )
+    if req is None:
+        _send_or_edit(chat_id, message_id, _admin_text("That request no longer exists."))
+        return
+    if not req.is_pending:
+        _send_or_edit(
+            chat_id,
+            message_id,
+            _admin_text(f"Already {req.status} — “{req.user.username}”."),
+        )
+        return
+
+    if decision == "approve":
+        services.approve_access(req)
+        _send_or_edit(
+            chat_id, message_id, _admin_text(f"✅ Approved “{req.user.username}”.")
+        )
+    else:
+        services.reject_access(req)
+        _send_or_edit(
+            chat_id, message_id, _admin_text(f"❌ Rejected “{req.user.username}”.")
+        )
 
 
 # --------------------------------------------------------------------------- #

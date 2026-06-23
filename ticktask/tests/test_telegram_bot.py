@@ -12,13 +12,14 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.contrib.auth.models import User
 
-from ticktask import telegram
+from ticktask import telegram, services
 from ticktask.models import (
     Task,
     SubTask,
     TimeEntry,
     CalendarEvent,
     UserTelegramSettings,
+    UserAccessRequest,
 )
 
 CHAT_ID = 42
@@ -58,13 +59,19 @@ def clear_state():
 # --------------------------------------------------------------------------- #
 
 
-def linked_user(username="alice", chat_id=CHAT_ID) -> User:
+def linked_user(username="alice", chat_id=CHAT_ID, **user_kwargs) -> User:
     """Creates a user with a Telegram chat already linked."""
-    user = User.objects.create_user(username=username, password="pw")
+    user = User.objects.create_user(username=username, password="pw", **user_kwargs)
     UserTelegramSettings.objects.create(  # pylint: disable=no-member
         user=user, chat_id=str(chat_id), connected_at=timezone.now()
     )
     return user
+
+
+def pending_request(username="pending-user") -> UserAccessRequest:
+    """Creates an inactive account with a pending access request."""
+    user = User.objects.create_user(username=username, password="pw", is_active=False)
+    return UserAccessRequest.objects.create(user=user)  # pylint: disable=no-member
 
 
 def command(text, chat_id=CHAT_ID):
@@ -87,11 +94,7 @@ def callback(data, chat_id=CHAT_ID, message_id=100):
 
 def sent_texts(calls):
     """Texts of every sendMessage / editMessageText call."""
-    return [
-        p["text"]
-        for m, p in calls
-        if m in ("sendMessage", "editMessageText")
-    ]
+    return [p["text"] for m, p in calls if m in ("sendMessage", "editMessageText")]
 
 
 def last_markup(calls):
@@ -155,7 +158,9 @@ def test_tasks_lists_recent_activity(stub_telegram_http):
     sub = SubTask.objects.create(task=task, name="Code", description="")  # pylint: disable=no-member
     now = timezone.now()
     TimeEntry.objects.create(  # pylint: disable=no-member
-        subtask=sub, clock_in=now - timedelta(hours=2), clock_out=now - timedelta(hours=1)
+        subtask=sub,
+        clock_in=now - timedelta(hours=2),
+        clock_out=now - timedelta(hours=1),
     )
 
     telegram.process_update(command("/tasks"))
@@ -379,3 +384,78 @@ def test_new_command_cancels_previous_flow(stub_telegram_http):
     telegram.process_update(text_reply("Orphan"))
 
     assert not Task.objects.filter(user=user, name="Orphan").exists()  # pylint: disable=no-member
+
+
+# --------------------------------------------------------------------------- #
+# Access requests (notify admins + approve/reject buttons)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_notify_admins_messages_linked_superusers(stub_telegram_http):
+    """Linked admins get a message with approve/reject buttons; others don't."""
+    linked_user("boss", chat_id=500, is_superuser=True)
+    linked_user("regular", chat_id=501)  # not an admin
+    req = pending_request("applicant")
+
+    telegram.notify_admins_of_access_request(req)
+
+    sends = [p for m, p in stub_telegram_http if m == "sendMessage"]
+    assert len(sends) == 1
+    assert sends[0]["chat_id"] == "500"
+    assert sends[0]["text"].startswith(telegram.ADMIN_PREFIX)
+    datas = callback_datas(sends[0]["reply_markup"])
+    assert f"acc:approve:{req.id}" in datas
+    assert f"acc:reject:{req.id}" in datas
+
+
+@pytest.mark.django_db
+def test_admin_can_approve_via_button(stub_telegram_http):
+    """An admin tapping approve activates the applicant's account."""
+    linked_user("boss", chat_id=500, is_superuser=True)
+    req = pending_request("applicant")
+
+    telegram.process_update(callback(f"acc:approve:{req.id}", chat_id=500))
+
+    req.refresh_from_db()
+    assert req.status == UserAccessRequest.APPROVED
+    assert User.objects.get(username="applicant").is_active is True  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_admin_can_reject_via_button(stub_telegram_http):
+    """An admin tapping reject leaves the applicant inactive."""
+    linked_user("boss", chat_id=500, is_superuser=True)
+    req = pending_request("applicant")
+
+    telegram.process_update(callback(f"acc:reject:{req.id}", chat_id=500))
+
+    req.refresh_from_db()
+    assert req.status == UserAccessRequest.REJECTED
+    assert User.objects.get(username="applicant").is_active is False  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_non_admin_cannot_decide_access(stub_telegram_http):
+    """A non-admin tapping the button changes nothing."""
+    linked_user("regular", chat_id=501)  # not an admin
+    req = pending_request("applicant")
+
+    telegram.process_update(callback(f"acc:approve:{req.id}", chat_id=501))
+
+    req.refresh_from_db()
+    assert req.status == UserAccessRequest.PENDING
+    assert User.objects.get(username="applicant").is_active is False  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_already_decided_request_is_noop(stub_telegram_http):
+    """Tapping a button on an already-decided request doesn't flip it."""
+    linked_user("boss", chat_id=500, is_superuser=True)
+    req = pending_request("applicant")
+    services.approve_access(req)
+
+    telegram.process_update(callback(f"acc:reject:{req.id}", chat_id=500))
+
+    req.refresh_from_db()
+    assert req.status == UserAccessRequest.APPROVED
