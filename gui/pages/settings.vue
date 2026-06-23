@@ -133,6 +133,24 @@
               class="h-10 w-24 rounded-xl border border-input bg-card px-3 text-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
           </div>
 
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-sm">
+              <span class="font-medium">Timezone</span>
+              <span class="block text-muted-foreground">
+                Used for the times the bot shows you (the web app already uses
+                this device's time).
+              </span>
+            </span>
+            <select
+              v-model="timezone"
+              class="h-10 w-56 rounded-xl border border-input bg-card px-3 text-foreground focus:outline-none focus:ring-2 focus:ring-ring">
+              <option value="">UTC</option>
+              <option v-for="tz in timezones" :key="tz" :value="tz">
+                {{ tz }}
+              </option>
+            </select>
+          </div>
+
           <div class="flex justify-end">
             <UiButton
               size="sm"
@@ -179,18 +197,32 @@
 
   const enabled = ref(true);
   const leadMinutes = ref(15);
+  const timezone = ref("");
+
+  // Full IANA list from the browser when available; falls back to just UTC.
+  const timezones =
+    typeof Intl.supportedValuesOf === "function"
+      ? Intl.supportedValuesOf("timeZone")
+      : [];
 
   const dirty = computed(
     () =>
       telegram.value &&
       (enabled.value !== telegram.value.enabled ||
-        leadMinutes.value !== telegram.value.reminder_lead_minutes),
+        leadMinutes.value !== telegram.value.reminder_lead_minutes ||
+        timezone.value !== telegram.value.timezone),
   );
 
   function sync(data) {
     telegram.value = data;
     enabled.value = data.enabled;
     leadMinutes.value = data.reminder_lead_minutes;
+    // Default a first-time user to this device's timezone (still needs saving).
+    timezone.value =
+      data.timezone ||
+      (typeof Intl.DateTimeFormat === "function"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone || ""
+        : "");
   }
 
   async function load() {
@@ -271,7 +303,9 @@
   async function save() {
     saving.value = true;
     try {
-      sync(await updateTelegram(enabled.value, leadMinutes.value));
+      sync(
+        await updateTelegram(enabled.value, leadMinutes.value, timezone.value),
+      );
       toast.success("Settings saved.");
     } catch (err) {
       console.error("Error saving settings:", err);

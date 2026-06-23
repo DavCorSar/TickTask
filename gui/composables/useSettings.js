@@ -6,10 +6,14 @@ export function useSettings() {
   return {
     getTelegram: () => $api("/telegram/settings/", { method: "GET" }),
 
-    updateTelegram: (enabled, reminderLeadMinutes) =>
+    updateTelegram: (enabled, reminderLeadMinutes, timezone = "") =>
       $api("/telegram/settings/", {
         method: "POST",
-        body: { enabled, reminder_lead_minutes: reminderLeadMinutes },
+        body: {
+          enabled,
+          reminder_lead_minutes: reminderLeadMinutes,
+          timezone,
+        },
       }),
 
     linkTelegram: () => $api("/telegram/link/", { method: "POST" }),

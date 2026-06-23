@@ -22,6 +22,7 @@ import json
 import logging
 import urllib.request
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -286,9 +287,10 @@ def _cmd_events(user, chat_id) -> None:
     if not events:
         _safe_send(chat_id, "No upcoming events in the next 7 days.")
         return
+    zone = _user_zone(user)
     lines = ["📅 Upcoming events:"]
     for event in events:
-        lines.append(f"• {event.title} — {_format_event_when(event)}")
+        lines.append(f"• {event.title} — {_format_event_when(event, zone)}")
     _safe_send(chat_id, "\n".join(lines))
 
 
@@ -620,11 +622,28 @@ def _format_duration(delta) -> str:
     return f"{minutes}m"
 
 
-def _format_event_when(event) -> str:
-    """Formats an event's start for display (UTC for now)."""
+def _format_event_when(event, zone: ZoneInfo) -> str:
+    """Formats an event's start in the user's timezone for display."""
+    start = event.start.astimezone(zone)
     if event.all_day:
-        return event.start.strftime("%Y-%m-%d (all day)")
-    return event.start.strftime("%Y-%m-%d %H:%M UTC")
+        return start.strftime("%Y-%m-%d (all day)")
+    return start.strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _user_zone(user) -> ZoneInfo:
+    """The user's display timezone (their setting, or UTC), as a ``ZoneInfo``."""
+    from ticktask.models import UserTelegramSettings  # pylint: disable=import-outside-toplevel
+
+    row = (
+        UserTelegramSettings.objects.filter(user=user)  # pylint: disable=no-member
+        .only("timezone")
+        .first()
+    )
+    name = row.timezone if row and row.timezone else "UTC"
+    try:
+        return ZoneInfo(name)
+    except Exception:  # pylint: disable=broad-except
+        return ZoneInfo("UTC")
 
 
 def _user_for_chat(chat_id):

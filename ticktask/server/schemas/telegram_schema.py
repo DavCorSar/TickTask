@@ -10,6 +10,7 @@ class TelegramSettingsSchema(Schema):
 
     enabled: bool
     reminder_lead_minutes: int
+    timezone: str
     connected: bool
     bot_username: str
 
@@ -19,6 +20,8 @@ class TelegramSettingsUpdateSchema(Schema):
 
     enabled: bool
     reminder_lead_minutes: int
+    # IANA timezone name (e.g. "Europe/Madrid"); "" means UTC.
+    timezone: str = ""
 
 
 class TelegramLinkSchema(Schema):

@@ -6,6 +6,7 @@ calls are made and we assert on the payloads the bot would have sent.
 """
 
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from django.core.cache import cache
@@ -203,6 +204,22 @@ def test_events_empty_state(stub_telegram_http):
     linked_user()
     telegram.process_update(command("/events"))
     assert any("No upcoming events" in t for t in sent_texts(stub_telegram_http))
+
+
+@pytest.mark.django_db
+def test_events_formatted_in_user_timezone(stub_telegram_http):
+    """Event times are shown in the user's configured timezone, not UTC."""
+    user = linked_user()
+    row = UserTelegramSettings.objects.get(user=user)  # pylint: disable=no-member
+    row.timezone = "Asia/Kolkata"  # UTC+5:30, no DST → deterministic
+    row.save(update_fields=["timezone"])
+    start = timezone.now() + timedelta(days=1)
+    CalendarEvent.objects.create(user=user, title="Call", start=start)  # pylint: disable=no-member
+
+    telegram.process_update(command("/events"))
+
+    expected = start.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%Y-%m-%d %H:%M %Z")
+    assert any(expected in t for t in sent_texts(stub_telegram_http))
 
 
 # --------------------------------------------------------------------------- #

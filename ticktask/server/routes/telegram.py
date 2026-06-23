@@ -25,6 +25,8 @@ try:
 except RuntimeError:
     pass
 
+from zoneinfo import available_timezones
+
 from django.conf import settings
 from django.utils import timezone
 from ticktask import telegram
@@ -39,11 +41,18 @@ def _get_settings(user) -> UserTelegramSettings:
     return row
 
 
+def _validate_timezone(name: str) -> None:
+    """Ensures ``name`` is a known IANA timezone (or empty, meaning UTC)."""
+    if name and name not in available_timezones():
+        raise HttpError(422, "Unknown timezone.")
+
+
 def _serialize(row: UserTelegramSettings) -> dict:
     """Shapes a settings row into the response payload."""
     return {
         "enabled": row.enabled,
         "reminder_lead_minutes": row.reminder_lead_minutes,
+        "timezone": row.timezone,
         "connected": row.connected,
         "bot_username": settings.TELEGRAM_BOT_USERNAME,
     }
@@ -68,10 +77,12 @@ def get_settings(request):
 )
 def update_settings(request, data: TelegramSettingsUpdateSchema):
     """Updates the user's reminder preferences."""
+    _validate_timezone(data.timezone)
     row = _get_settings(request.auth)
     row.enabled = data.enabled
     row.reminder_lead_minutes = data.reminder_lead_minutes
-    row.save(update_fields=["enabled", "reminder_lead_minutes"])
+    row.timezone = data.timezone
+    row.save(update_fields=["enabled", "reminder_lead_minutes", "timezone"])
     return _serialize(row)
 
 
