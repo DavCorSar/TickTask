@@ -32,10 +32,17 @@
 
       <div class="mt-10 flex flex-wrap items-center justify-center gap-3">
         <UiButton
-          :to="auth.isAuthenticated.value ? '/home' : '/login'"
+          :to="auth.isAuthenticated.value ? '/home' : '/signup'"
           size="lg"
           icon="lucide:arrow-right">
           {{ auth.isAuthenticated.value ? "Open the app" : "Get started" }}
+        </UiButton>
+        <UiButton
+          v-if="!auth.isAuthenticated.value"
+          to="/login"
+          variant="ghost"
+          size="lg">
+          Log in
         </UiButton>
       </div>
 
