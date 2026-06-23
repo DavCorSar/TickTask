@@ -2,11 +2,17 @@ import { describe, it, expect } from "vitest";
 import {
   startOfMonth,
   addMonths,
+  addDays,
+  addWeeks,
+  startOfWeek,
+  weekDays,
   buildMonthMatrix,
   dayKey,
   isSameDay,
   isSameMonth,
   eventSegmentsByDay,
+  dayEventLayout,
+  packEventColumns,
 } from "../utils/calendar.js";
 
 describe("startOfMonth", () => {
@@ -88,5 +94,103 @@ describe("eventSegmentsByDay", () => {
     expect(Object.keys(map).sort()).toEqual(["2026-03-02", "2026-03-03"]);
     expect(map["2026-03-02"][0].isStart).toBe(false); // started before the grid
     expect(map["2026-03-03"][0].isEnd).toBe(true);
+  });
+});
+
+describe("week helpers", () => {
+  it("startOfWeek returns the Monday of the week", () => {
+    // 2026-03-04 is a Wednesday.
+    expect(dayKey(startOfWeek(new Date(2026, 2, 4)))).toBe("2026-03-02");
+  });
+
+  it("weekDays returns Mon→Sun", () => {
+    const days = weekDays(new Date(2026, 2, 4));
+    expect(days.map(dayKey)).toEqual([
+      "2026-03-02",
+      "2026-03-03",
+      "2026-03-04",
+      "2026-03-05",
+      "2026-03-06",
+      "2026-03-07",
+      "2026-03-08",
+    ]);
+  });
+
+  it("addDays / addWeeks shift correctly", () => {
+    expect(dayKey(addDays(new Date(2026, 2, 4), 5))).toBe("2026-03-09");
+    expect(dayKey(addWeeks(new Date(2026, 2, 4), -1))).toBe("2026-02-25");
+  });
+});
+
+describe("packEventColumns", () => {
+  it("places non-overlapping segments in a single column", () => {
+    const out = packEventColumns([
+      { startMin: 60, endMin: 120 },
+      { startMin: 180, endMin: 240 },
+    ]);
+    expect(out.every((s) => s.cols === 1 && s.col === 0)).toBe(true);
+  });
+
+  it("splits two overlapping segments into two columns", () => {
+    const out = packEventColumns([
+      { startMin: 60, endMin: 180 },
+      { startMin: 120, endMin: 240 },
+    ]);
+    expect(out.map((s) => s.cols)).toEqual([2, 2]);
+    expect(new Set(out.map((s) => s.col))).toEqual(new Set([0, 1]));
+  });
+
+  it("reuses a column once an earlier segment has ended", () => {
+    const out = packEventColumns([
+      { startMin: 0, endMin: 60 },
+      { startMin: 30, endMin: 90 },
+      { startMin: 70, endMin: 120 }, // overlaps the 2nd but not the 1st
+    ]);
+    const byStart = Object.fromEntries(out.map((s) => [s.startMin, s]));
+    expect(byStart[70].col).toBe(0); // free again after the first ended at 60
+  });
+});
+
+describe("dayEventLayout", () => {
+  const day = new Date(2026, 2, 4); // Wed
+
+  it("separates all-day from timed events", () => {
+    const events = [
+      { id: 1, title: "Holiday", all_day: true, start: new Date(2026, 2, 4, 0) },
+      {
+        id: 2,
+        title: "Call",
+        all_day: false,
+        start: new Date(2026, 2, 4, 9),
+        end: new Date(2026, 2, 4, 10),
+      },
+    ];
+    const { allDay, timed } = dayEventLayout(events, day);
+    expect(allDay.map((e) => e.id)).toEqual([1]);
+    expect(timed).toHaveLength(1);
+    expect(timed[0]).toMatchObject({ startMin: 540, endMin: 600 });
+  });
+
+  it("treats an event spanning the whole day as all-day", () => {
+    const events = [
+      {
+        id: 3,
+        title: "Trip",
+        start: new Date(2026, 2, 3, 8),
+        end: new Date(2026, 2, 6, 8),
+      },
+    ];
+    const { allDay, timed } = dayEventLayout(events, day);
+    expect(allDay).toHaveLength(1);
+    expect(timed).toHaveLength(0);
+  });
+
+  it("clips a timed event to the day and gives open-ended ones an hour", () => {
+    const events = [
+      { id: 4, title: "Open", start: new Date(2026, 2, 4, 23), end: null },
+    ];
+    const { timed } = dayEventLayout(events, day);
+    expect(timed[0].startMin).toBe(1380); // 23:00
+    expect(timed[0].endMin).toBe(1440); // clipped to midnight
   });
 });
