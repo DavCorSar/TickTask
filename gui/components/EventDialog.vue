@@ -31,6 +31,29 @@
         All day
       </label>
 
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <span class="mb-1.5 block text-sm font-medium">Repeats</span>
+          <select
+            v-model="recurrence"
+            class="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+            <option value="">Does not repeat</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+        <UiInput
+          v-if="recurrence"
+          v-model="recurrenceUntilLocal"
+          label="Repeat until (optional)"
+          type="date" />
+      </div>
+
+      <p v-if="recurrence && isEdit" class="text-xs text-muted-foreground">
+        Editing or deleting applies to the whole series.
+      </p>
+
       <div>
         <span class="mb-1.5 block text-sm font-medium">Color</span>
         <div class="flex gap-2">
@@ -95,6 +118,8 @@
   const startLocal = ref("");
   const endLocal = ref("");
   const color = ref(presets[0]);
+  const recurrence = ref("");
+  const recurrenceUntilLocal = ref("");
   const error = ref("");
   const saving = ref(false);
   const deleting = ref(false);
@@ -112,14 +137,21 @@
       if (!val) return;
       error.value = "";
       if (props.event) {
+        // Calendar items are occurrences; edit the whole series, so prefill from
+        // the series' own start/end (falling back to the occurrence's).
+        const seriesStart = props.event.series_start || props.event.start;
+        const seriesEnd =
+          props.event.series_end ?? props.event.end ?? null;
         title.value = props.event.title;
         description.value = props.event.description || "";
         allDay.value = props.event.all_day;
-        startLocal.value = toDateTimeLocal(props.event.start);
-        endLocal.value = props.event.end
-          ? toDateTimeLocal(props.event.end)
-          : "";
+        startLocal.value = toDateTimeLocal(seriesStart);
+        endLocal.value = seriesEnd ? toDateTimeLocal(seriesEnd) : "";
         color.value = props.event.color || presets[0];
+        recurrence.value = props.event.recurrence || "";
+        recurrenceUntilLocal.value = props.event.recurrence_until
+          ? toDateTimeLocal(props.event.recurrence_until).slice(0, 10)
+          : "";
       } else {
         const base = props.defaultStart
           ? new Date(props.defaultStart)
@@ -130,6 +162,8 @@
         startLocal.value = toDateTimeLocal(base);
         endLocal.value = "";
         color.value = presets[0];
+        recurrence.value = "";
+        recurrenceUntilLocal.value = "";
       }
     },
   );
@@ -154,6 +188,12 @@
       start: fromDateTimeLocal(startLocal.value),
       end: endLocal.value ? fromDateTimeLocal(endLocal.value) : null,
       color: color.value,
+      recurrence: recurrence.value,
+      // Treat the chosen day as inclusive: keep occurrences up to its end.
+      recurrence_until:
+        recurrence.value && recurrenceUntilLocal.value
+          ? new Date(`${recurrenceUntilLocal.value}T23:59:59`).toISOString()
+          : null,
     };
 
     if (payload.end && new Date(payload.end) < new Date(payload.start)) {

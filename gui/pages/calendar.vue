@@ -114,7 +114,11 @@
               :title="seg.event.title"
               @click.stop="openEdit(seg.event)">
               <span class="truncate">
-                {{ seg.isStart || day.getDay() === 1 ? seg.event.title : "" }}
+                {{
+                  seg.isStart || day.getDay() === 1
+                    ? (seg.event.recurrence ? "↻ " : "") + seg.event.title
+                    : ""
+                }}
               </span>
             </button>
             <span

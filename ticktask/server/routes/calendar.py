@@ -12,6 +12,7 @@ from ninja_jwt.authentication import JWTAuth
 
 from ticktask.server.schemas.calendar_event_schema import (
     CalendarEventSchema,
+    CalendarOccurrenceSchema,
     CalendarEventCreateSchema,
     CalendarEventUpdateSchema,
     CalendarSchema,
@@ -24,9 +25,12 @@ except RuntimeError:
     pass
 
 from django.db.models import Q
+from ticktask import services
 from ticktask.models import CalendarEvent, TimeEntry, SentReminder
 
 calendar_router = Router()
+
+VALID_RECURRENCES = {choice for choice, _ in CalendarEvent.RECURRENCE_CHOICES}
 
 
 def _validate_range(start: datetime, end: datetime | None) -> None:
@@ -45,18 +49,78 @@ def _validate_title(title: str) -> None:
         raise HttpError(422, "The event title cannot be empty.")
 
 
+def _validate_recurrence(
+    recurrence: str, start: datetime, until: datetime | None
+) -> None:
+    """Validates the recurrence kind and its optional cut-off date."""
+    if recurrence not in VALID_RECURRENCES:
+        raise HttpError(422, "Invalid recurrence.")
+    if until is not None:
+        if not recurrence:
+            raise HttpError(
+                422, "A repeat-until date only applies to a recurring event."
+            )
+        if until < start:
+            raise HttpError(422, "The repeat-until date cannot be before the start.")
+
+
 def _events_in_range(user, start: datetime, end: datetime):
     """
-    Returns the user's events overlapping the ``[start, end]`` window.
+    Returns the user's event rows relevant to ``[start, end]``: one-off events
+    that overlap the window, plus any recurring series that started on or before
+    the window and hasn't ended before it (occurrences are expanded separately).
     """
+    one_off = Q(recurrence="") & Q(start__lte=end) & (
+        Q(end__gte=start) | Q(end__isnull=True, start__gte=start)
+    )
+    recurring = (
+        ~Q(recurrence="")
+        & Q(start__lte=end)
+        & (Q(recurrence_until__isnull=True) | Q(recurrence_until__gte=start))
+    )
     return (
         CalendarEvent.objects.filter(user=user)  # pylint: disable=no-member
-        .filter(
-            Q(start__lte=end)
-            & (Q(end__gte=start) | Q(end__isnull=True, start__gte=start))
-        )
+        .filter(one_off | recurring)
         .order_by("start")
     )
+
+
+def _expand_events(user, start: datetime, end: datetime) -> list[dict]:
+    """
+    Expands the relevant events into occurrence dicts within ``[start, end]``,
+    each carrying its own ``series_start``/``series_end`` so the UI can edit the
+    whole series. Sorted by occurrence start.
+    """
+    occurrences: list[dict] = []
+    for event in _events_in_range(user, start, end):
+        duration = (event.end - event.start) if event.end else None
+        # One-off events already passed the overlap filter, so keep them as-is
+        # (their start may sit just before the window). Recurring events are
+        # expanded to the occurrences whose start falls inside the window.
+        if not event.recurrence:
+            occ_starts = [event.start]
+        else:
+            occ_starts = services.occurrences_between(
+                event.start, event.recurrence, event.recurrence_until, start, end
+            )
+        for occ_start in occ_starts:
+            occurrences.append(
+                {
+                    "id": event.id,
+                    "title": event.title,
+                    "description": event.description,
+                    "start": occ_start,
+                    "end": (occ_start + duration) if duration else None,
+                    "all_day": event.all_day,
+                    "color": event.color,
+                    "recurrence": event.recurrence,
+                    "recurrence_until": event.recurrence_until,
+                    "series_start": event.start,
+                    "series_end": event.end,
+                }
+            )
+    occurrences.sort(key=lambda occ: occ["start"])
+    return occurrences
 
 
 @calendar_router.post(
@@ -72,6 +136,7 @@ def create_event(request, data: CalendarEventCreateSchema):
     _validate_range(data.start, data.end)
     title = data.title.strip()
     _validate_title(title)
+    _validate_recurrence(data.recurrence, data.start, data.recurrence_until)
 
     return CalendarEvent.objects.create(  # pylint: disable=no-member
         user=request.auth,
@@ -81,21 +146,23 @@ def create_event(request, data: CalendarEventCreateSchema):
         end=data.end,
         all_day=data.all_day,
         color=data.color.strip(),
+        recurrence=data.recurrence,
+        recurrence_until=data.recurrence_until,
     )
 
 
 @calendar_router.get(
     "/user/get-events/",
-    response=list[CalendarEventSchema],
+    response=list[CalendarOccurrenceSchema],
     tags=["Calendar"],
     auth=JWTAuth(),
 )
 def get_events(request, start: datetime, end: datetime):
     """
-    Returns the events of the authenticated user that overlap the
-    ``[start, end]`` window.
+    Returns the authenticated user's event occurrences within the
+    ``[start, end]`` window (recurring events expanded).
     """
-    return _events_in_range(request.auth, start, end)
+    return _expand_events(request.auth, start, end)
 
 
 @calendar_router.get(
@@ -139,7 +206,7 @@ def get_calendar(
     ]
 
     return {
-        "events": list(_events_in_range(request.auth, start, end)),
+        "events": _expand_events(request.auth, start, end),
         "time_entries": time_entries,
     }
 
@@ -167,10 +234,14 @@ def update_event(request, event_id: int, data: CalendarEventUpdateSchema):
             payload[field] = payload[field].strip()
     if "title" in payload and payload["title"] is not None:
         _validate_title(payload["title"])
+    # Don't let an explicit null wipe the recurrence kind (it can't be None).
+    if payload.get("recurrence") is None:
+        payload.pop("recurrence", None)
     for attr, value in payload.items():
         setattr(event, attr, value)
 
     _validate_range(event.start, event.end)
+    _validate_recurrence(event.recurrence, event.start, event.recurrence_until)
     event.save()
     # The event may have moved in time, so any reminders already sent for it no
     # longer apply — drop them so the scheduler reconsiders the new times.

@@ -9,8 +9,9 @@ whether the user acts through the web API or from a chat. They raise
 that into its own error shape (``HttpError`` for the API, a reply for the bot).
 """
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
+from dateutil.relativedelta import relativedelta
 from django.db.models import Q
 from django.utils import timezone
 
@@ -183,6 +184,68 @@ def upcoming_events(user, days: int = 7, limit: int = 10):
             not_over_yet, user=user, start__lte=now + timedelta(days=days)
         ).order_by("start")[:limit]
     )
+
+
+# --------------------------------------------------------------------------- #
+# Calendar recurrence
+# --------------------------------------------------------------------------- #
+
+
+def add_recurrence(start: datetime, recurrence: str, n: int) -> datetime:
+    """
+    Returns the ``n``-th occurrence start of a recurring series, anchored to the
+    first occurrence ``start`` (so month/year steps don't drift: monthly from
+    Jan 31 gives Feb 28, Mar 31, … instead of creeping earlier each month).
+    """
+    if recurrence == CalendarEvent.WEEKLY:
+        return start + timedelta(weeks=n)
+    if recurrence == CalendarEvent.MONTHLY:
+        return start + relativedelta(months=n)
+    if recurrence == CalendarEvent.YEARLY:
+        return start + relativedelta(years=n)
+    raise ValueError(f"Unknown recurrence: {recurrence!r}")
+
+
+def occurrences_between(start, recurrence, until, range_start, range_end):
+    """
+    Lists the occurrence start datetimes of an event within
+    ``[range_start, range_end]`` (inclusive). A non-recurring event yields its
+    own ``start`` when it falls in the window. ``until`` (if set) caps the
+    series: no occurrence starts after it.
+    """
+    if not recurrence:
+        return [start] if range_start <= start <= range_end else []
+
+    occurrences = []
+    n = _lower_bound_index(start, recurrence, range_start)
+    guard = 0
+    while guard < 2000:
+        occ = add_recurrence(start, recurrence, n)
+        if occ > range_end:
+            break
+        if occ >= range_start and (until is None or occ <= until):
+            occurrences.append(occ)
+        n += 1
+        guard += 1
+    return occurrences
+
+
+def _lower_bound_index(start, recurrence, range_start) -> int:
+    """
+    A safe lower bound for the occurrence index at or before ``range_start``, so
+    the caller starts iterating just below the window (never skipping past it).
+    """
+    if range_start <= start:
+        return 0
+    if recurrence == CalendarEvent.WEEKLY:
+        weeks = (range_start - start).days // 7
+        return max(0, weeks - 1)
+    if recurrence == CalendarEvent.MONTHLY:
+        months = (range_start.year - start.year) * 12 + (range_start.month - start.month)
+        return max(0, months - 1)
+    if recurrence == CalendarEvent.YEARLY:
+        return max(0, range_start.year - start.year - 1)
+    return 0
 
 
 # --------------------------------------------------------------------------- #
