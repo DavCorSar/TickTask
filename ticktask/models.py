@@ -185,6 +185,10 @@ class UserTelegramSettings(models.Model):
     enabled = models.BooleanField(default=True)
     # How many minutes before an event to send the "heads-up" reminder.
     reminder_lead_minutes = models.PositiveIntegerField(default=15)
+    # IANA name (e.g. "Europe/Madrid") used to display times the bot sends. An
+    # empty string means UTC. The web UI shows times in the browser's timezone,
+    # so this only affects server-side (Telegram) output.
+    timezone = models.CharField(max_length=64, blank=True, default="")
     # One-time token used to link a Telegram chat to this account.
     link_token = models.CharField(max_length=64, null=True, blank=True, default=None)
     link_token_created_at = models.DateTimeField(null=True, blank=True, default=None)
