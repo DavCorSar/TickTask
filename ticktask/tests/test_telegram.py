@@ -70,6 +70,7 @@ def test_get_settings_returns_defaults():
     assert body == {
         "enabled": True,
         "reminder_lead_minutes": 15,
+        "timezone": "",
         "connected": False,
         "bot_username": "TickTaskBot",
     }
@@ -82,12 +83,29 @@ def test_update_settings():
     resp = post(
         auth_client(user),
         f"{BASE}/settings/",
-        {"enabled": False, "reminder_lead_minutes": 30},
+        {
+            "enabled": False,
+            "reminder_lead_minutes": 30,
+            "timezone": "Europe/Madrid",
+        },
     )
     assert resp.status_code == 200
+    assert resp.json()["timezone"] == "Europe/Madrid"
     row = UserTelegramSettings.objects.get(user=user)  # pylint: disable=no-member
     assert row.enabled is False
     assert row.reminder_lead_minutes == 30
+    assert row.timezone == "Europe/Madrid"
+
+
+@pytest.mark.django_db
+def test_update_settings_rejects_unknown_timezone():
+    """An invalid IANA timezone is refused."""
+    resp = post(
+        auth_client(make_user()),
+        f"{BASE}/settings/",
+        {"enabled": True, "reminder_lead_minutes": 15, "timezone": "Mars/Phobos"},
+    )
+    assert resp.status_code == 422
 
 
 @pytest.mark.django_db
