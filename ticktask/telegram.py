@@ -47,6 +47,7 @@ ADMIN_PREFIX = "🛡️ ADMIN"
 BOT_COMMANDS = [
     ("clockin", "Start tracking time on a subtask"),
     ("clockout", "Stop the current time entry"),
+    ("today", "Today's tracked time and events"),
     ("tasks", "Show your recent activity"),
     ("events", "Show your upcoming events"),
     ("newtask", "Create a new task"),
@@ -241,6 +242,7 @@ def _handle_command(user, chat_id, text: str) -> None:
     cmd = word.split("@")[0]  # tolerate /clockin@TickTaskBot in groups
     handler = {
         "help": lambda u, c: _send_help(c),
+        "today": _cmd_today,
         "tasks": _cmd_recent,
         "recent": _cmd_recent,
         "events": _cmd_events,
@@ -264,9 +266,44 @@ def _send_help(chat_id) -> None:
     _safe_send(chat_id, "\n".join(lines))
 
 
+def _more_footer(count: int) -> str:
+    """Footer line shown when a list was capped, pointing back to the app."""
+    return f"…and {count} more — open TickTask to see the rest."
+
+
+def _cmd_today(user, chat_id) -> None:
+    """``/today`` — today's tracked total, the open entry, and today's events."""
+    zone = _user_zone(user)
+    now_local = timezone.now().astimezone(zone)
+    day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = day_start + timedelta(days=1)
+
+    total = services.tracked_total(user, day_start, day_end)
+    open_entry = services.get_open_entry(user)
+    events = services.events_in_window(user, day_start, day_end)
+
+    lines = [f"📊 Today — {now_local.strftime('%Y-%m-%d')}"]
+    lines.append(f"⏱ Tracked: {_format_duration(total)}")
+    if open_entry is not None:
+        lines.append(f"🟢 Clocked in on {_entry_label(open_entry)}")
+
+    if events:
+        lines.append("")
+        lines.append("📅 Events today:")
+        for event, occurrence in events[:LIST_LIMIT]:
+            when = "all day" if event.all_day else occurrence.astimezone(zone).strftime("%H:%M")
+            lines.append(f"• {event.title} — {when}")
+        if len(events) > LIST_LIMIT:
+            lines.append(_more_footer(len(events) - LIST_LIMIT))
+    else:
+        lines.append("")
+        lines.append("No events today.")
+    _safe_send(chat_id, "\n".join(lines))
+
+
 def _cmd_recent(user, chat_id) -> None:
     """``/tasks`` — recent activity and the current open entry, if any."""
-    entries = services.recent_time_entries(user, limit=LIST_LIMIT)
+    entries, total = services.recent_time_entries(user, limit=LIST_LIMIT)
     if not entries:
         _safe_send(chat_id, "No time tracked yet. Use /clockin to get started.")
         return
@@ -278,12 +315,14 @@ def _cmd_recent(user, chat_id) -> None:
         else:
             duration = _format_duration(entry.clock_out - entry.clock_in)
             lines.append(f"• {label} — {duration}")
+    if total > len(entries):
+        lines.append(_more_footer(total - len(entries)))
     _safe_send(chat_id, "\n".join(lines))
 
 
 def _cmd_events(user, chat_id) -> None:
     """``/events`` — upcoming calendar events for the next few days."""
-    events = services.upcoming_events(user, days=7, limit=LIST_LIMIT)
+    events, total = services.upcoming_events(user, days=7, limit=LIST_LIMIT)
     if not events:
         _safe_send(chat_id, "No upcoming events in the next 7 days.")
         return
@@ -291,6 +330,8 @@ def _cmd_events(user, chat_id) -> None:
     lines = ["📅 Upcoming events:"]
     for event in events:
         lines.append(f"• {event.title} — {_format_event_when(event, zone)}")
+    if total > len(events):
+        lines.append(_more_footer(total - len(events)))
     _safe_send(chat_id, "\n".join(lines))
 
 
