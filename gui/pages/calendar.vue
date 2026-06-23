@@ -24,26 +24,39 @@
 
     <UiCard padded>
       <!-- Toolbar -->
-      <div class="mb-4 flex items-center justify-between gap-3">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div class="flex items-center gap-2">
           <UiButton
             variant="outline"
             size="icon"
             icon="lucide:chevron-left"
-            @click="prevMonth" />
+            @click="goPrev" />
           <UiButton
             variant="outline"
             size="icon"
             icon="lucide:chevron-right"
-            @click="nextMonth" />
+            @click="goNext" />
           <UiButton variant="ghost" size="sm" @click="goToday">Today</UiButton>
         </div>
-        <h2 class="text-lg font-semibold capitalize">
-          {{ monthLabel(cursor) }}
-        </h2>
-        <div class="w-[88px]"></div>
+        <h2 class="text-lg font-semibold capitalize">{{ title }}</h2>
+        <div class="inline-flex rounded-xl border border-border p-0.5">
+          <button
+            v-for="option in views"
+            :key="option"
+            class="rounded-lg px-3 py-1 text-sm font-medium capitalize transition-colors"
+            :class="
+              view === option
+                ? 'bg-primary text-primary-foreground shadow-soft'
+                : 'text-muted-foreground hover:text-foreground'
+            "
+            @click="view = option">
+            {{ option }}
+          </button>
+        </div>
       </div>
 
+      <!-- Month view -->
+      <template v-if="view === 'month'">
       <!-- Weekday headers -->
       <div class="grid grid-cols-7 gap-1.5 pb-1.5">
         <div
@@ -129,6 +142,24 @@
           </div>
         </div>
       </div>
+      </template>
+
+      <!-- Week / Day view -->
+      <div v-else class="relative">
+        <div
+          v-if="loading"
+          class="absolute inset-0 z-20 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
+          <Icon
+            name="lucide:loader-circle"
+            class="size-6 animate-spin text-muted-foreground" />
+        </div>
+        <CalendarTimeGrid
+          :days="days"
+          :events="events"
+          :time-entries="timeEntries"
+          @create="openCreateAt"
+          @edit="openEdit" />
+      </div>
     </UiCard>
 
     <EventDialog
@@ -154,6 +185,8 @@
 
   const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+  const views = ["month", "week", "day"];
+  const view = ref("month");
   const cursor = ref(new Date());
   const events = ref([]);
   const timeEntries = ref([]);
@@ -164,7 +197,31 @@
   const editingEvent = ref(null);
   const defaultStart = ref(null);
 
-  const days = computed(() => buildMonthMatrix(cursor.value));
+  const days = computed(() => {
+    if (view.value === "week") return weekDays(cursor.value);
+    if (view.value === "day") {
+      const c = cursor.value;
+      return [new Date(c.getFullYear(), c.getMonth(), c.getDate())];
+    }
+    return buildMonthMatrix(cursor.value);
+  });
+
+  const title = computed(() => {
+    if (view.value === "day") {
+      return cursor.value.toLocaleDateString([], {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      });
+    }
+    if (view.value === "week") {
+      const ds = days.value;
+      const fmt = (d) =>
+        d.toLocaleDateString([], { month: "short", day: "numeric" });
+      return `${fmt(ds[0])} – ${fmt(ds[ds.length - 1])}`;
+    }
+    return monthLabel(cursor.value);
+  });
 
   const eventsByDay = computed(() => {
     const map = eventSegmentsByDay(events.value, days.value);
@@ -235,12 +292,18 @@
     }
   }
 
-  function prevMonth() {
-    cursor.value = addMonths(cursor.value, -1);
+  function shift(amount) {
+    if (view.value === "week") cursor.value = addWeeks(cursor.value, amount);
+    else if (view.value === "day") cursor.value = addDays(cursor.value, amount);
+    else cursor.value = addMonths(cursor.value, amount);
   }
 
-  function nextMonth() {
-    cursor.value = addMonths(cursor.value, 1);
+  function goPrev() {
+    shift(-1);
+  }
+
+  function goNext() {
+    shift(1);
   }
 
   function goToday() {
@@ -248,9 +311,15 @@
   }
 
   function openCreate(day) {
-    editingEvent.value = null;
+    // Month view: a day cell → default to 9:00 on that day.
     const d = new Date(day.getFullYear(), day.getMonth(), day.getDate(), 9, 0);
-    defaultStart.value = d.toISOString();
+    openCreateAt(d);
+  }
+
+  function openCreateAt(date) {
+    // Week/day view: an exact clicked time.
+    editingEvent.value = null;
+    defaultStart.value = date.toISOString();
     dialogOpen.value = true;
   }
 
@@ -261,5 +330,6 @@
   }
 
   watch(cursor, load, { immediate: true });
+  watch(view, load);
   watch(includeDeleted, load);
 </script>

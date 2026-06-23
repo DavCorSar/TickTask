@@ -13,6 +13,100 @@ export function addMonths(date, n) {
   return new Date(date.getFullYear(), date.getMonth() + n, 1);
 }
 
+/** Returns a new date shifted by `n` days (n can be negative), at midnight. */
+export function addDays(date, n) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+}
+
+/** Monday (00:00) of the week containing `date`. */
+export function startOfWeek(date) {
+  const offset = (date.getDay() + 6) % 7; // Monday = 0
+  return addDays(date, -offset);
+}
+
+/** Returns a new date shifted by `n` weeks (n can be negative). */
+export function addWeeks(date, n) {
+  return addDays(date, n * 7);
+}
+
+/** The seven days (Mon→Sun) of the week containing `date`, each at midnight. */
+export function weekDays(date) {
+  const start = startOfWeek(date);
+  return Array.from({ length: 7 }, (_, i) => addDays(start, i));
+}
+
+/**
+ * Lays out a day's events for a time-grid (week/day) view. Splits them into
+ * `allDay` (all-day events or ones covering the whole day) and `timed` segments
+ * clipped to the day, each with `startMin`/`endMin` (minutes from midnight) and
+ * a `col`/`cols` pair packing overlapping events side by side.
+ */
+export function dayEventLayout(events, day) {
+  const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
+  const dayEnd = addDays(dayStart, 1);
+  const allDay = [];
+  const raw = [];
+
+  for (const event of events) {
+    const start = new Date(event.start);
+    const end = event.end
+      ? new Date(event.end)
+      : new Date(start.getTime() + 60 * 60000); // default 1h for open-ended
+    if (end <= dayStart || start >= dayEnd) continue; // doesn't touch this day
+
+    if (event.all_day || (start <= dayStart && end >= dayEnd)) {
+      allDay.push(event);
+      continue;
+    }
+
+    const startMin = Math.max(0, (start - dayStart) / 60000);
+    let endMin = Math.min(1440, (end - dayStart) / 60000);
+    if (endMin - startMin < 30) endMin = startMin + 30; // keep it visible
+    raw.push({ event, startMin, endMin });
+  }
+
+  return { allDay, timed: packEventColumns(raw) };
+}
+
+/**
+ * Greedy column packing for overlapping timed segments: each segment gets a
+ * `col` index and the `cols` count of its overlap cluster, so the UI can place
+ * concurrent events side by side (`width = 100/cols%`, `left = col*width`).
+ */
+export function packEventColumns(segments) {
+  const segs = [...segments].sort(
+    (a, b) => a.startMin - b.startMin || a.endMin - b.endMin,
+  );
+  const result = [];
+  let cluster = [];
+  let clusterEnd = -1;
+
+  const flush = () => {
+    const colEnds = [];
+    for (const seg of cluster) {
+      let col = colEnds.findIndex((end) => seg.startMin >= end);
+      if (col === -1) {
+        col = colEnds.length;
+        colEnds.push(seg.endMin);
+      } else {
+        colEnds[col] = seg.endMin;
+      }
+      seg.col = col;
+    }
+    for (const seg of cluster) result.push({ ...seg, cols: colEnds.length });
+    cluster = [];
+    clusterEnd = -1;
+  };
+
+  for (const seg of segs) {
+    if (cluster.length && seg.startMin >= clusterEnd) flush();
+    cluster.push(seg);
+    clusterEnd = Math.max(clusterEnd, seg.endMin);
+  }
+  flush();
+  return result;
+}
+
 /**
  * Build the 6x7 matrix (42 days) covering the month of `date`, starting on
  * Monday. Returns a flat array of Date objects.
