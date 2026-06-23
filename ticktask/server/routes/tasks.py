@@ -38,8 +38,14 @@ except RuntimeError:
 from ticktask.models import Task, SubTask, TimeEntry
 from django.db.models import Prefetch
 from django.utils import timezone
+from ticktask import services
 
 ticktask_router = Router()
+
+
+def _raise_http(exc: services.ServiceError):
+    """Translates a domain :class:`ServiceError` into a Ninja ``HttpError``."""
+    raise HttpError(exc.status, exc.message)
 
 
 @ticktask_router.get(
@@ -71,27 +77,10 @@ def create_task(request, data: TaskCreationSchema):
     """
     Creates a new task for the authenticated user.
     """
-    name = data.name.strip()
-    if not name:
-        raise HttpError(422, "El nombre de la tarea no puede estar vacío.")
-
-    existing = Task.objects.filter(  # pylint: disable=no-member
-        user=request.auth, name=name
-    ).first()
-    if existing is not None:
-        if existing.is_deleted:
-            raise HttpError(
-                409,
-                "Ya existe una tarea eliminada con ese nombre. "
-                "Restáurala en lugar de crear una nueva.",
-            )
-        raise HttpError(409, "Ya existe una tarea con ese nombre.")
-
-    task = Task.objects.create(  # pylint: disable=no-member
-        user=request.auth,
-        name=name,
-    )
-    return task
+    try:
+        return services.create_task(request.auth, data.name)
+    except services.ServiceError as exc:
+        _raise_http(exc)
 
 
 @ticktask_router.post(
@@ -105,31 +94,11 @@ def create_subtask(request, data: SubTaskCreationSchema):
     Creates a new subtask for the authenticated user.
     """
     try:
-        task = Task.objects.get(id=data.task_id, user=request.auth)  # pylint: disable=no-member
-    except Task.DoesNotExist:  # pylint: disable=no-member
-        return {"error": "Tarea no encontrada"}, 404
-
-    name = data.name.strip()
-    if not name:
-        raise HttpError(422, "El nombre de la subtarea no puede estar vacío.")
-
-    existing = SubTask.objects.filter(task=task, name=name).first()  # pylint: disable=no-member
-    if existing is not None:
-        if existing.is_deleted:
-            raise HttpError(
-                409,
-                "Ya existe una subtarea eliminada con ese nombre en esta tarea. "
-                "Restáurala en lugar de crear una nueva.",
-            )
-        raise HttpError(409, "Ya existe una subtarea con ese nombre en esta tarea.")
-
-    subtask = SubTask.objects.create(  # pylint: disable=no-member
-        name=name,
-        description=data.description.strip(),
-        task=task,
-    )
-
-    return subtask
+        return services.create_subtask(
+            request.auth, data.task_id, data.name, data.description
+        )
+    except services.ServiceError as exc:
+        _raise_http(exc)
 
 
 @ticktask_router.post(
@@ -247,17 +216,9 @@ def clock_in(request, data: ClockInSchema):
     Registers a new time entry to the corresponding subtask.
     """
     try:
-        subtask = SubTask.objects.select_related("task").get(id=data.subtask_id)  # pylint: disable=no-member
-    except SubTask.DoesNotExist:  # pylint: disable=no-member
-        return {"error": "Subtarea no encontrada"}, 404
-
-    if subtask.task.user != request.auth:
-        return {"error": "No autorizado para esta subtarea"}, 403
-    if subtask.is_deleted or subtask.task.is_deleted:
-        raise HttpError(409, "No se puede fichar en una subtarea eliminada.")
-    entry = TimeEntry.objects.create(subtask=subtask)  # pylint: disable=no-member
-
-    return entry
+        return services.clock_in(request.auth, data.subtask_id)
+    except services.ServiceError as exc:
+        _raise_http(exc)
 
 
 @ticktask_router.post(
@@ -271,18 +232,9 @@ def clock_out(request, data: ClockOutSchema):
     Updates the given TimeEntry with clock_out.
     """
     try:
-        entry = TimeEntry.objects.select_related("subtask__task").get(  # pylint: disable=no-member
-            id=data.entity_id, clock_out__isnull=True
-        )
-    except TimeEntry.DoesNotExist:  # pylint: disable=no-member
-        return {"error": "Entrada no encontrada o ya cerrada"}, 404
-
-    if entry.subtask.task.user != request.auth:
-        return {"error": "No autorizado para esta entrada de tiempo"}, 403
-
-    entry.clock_out = timezone.now()
-    entry.save()
-    return entry
+        return services.clock_out(request.auth, data.entity_id)
+    except services.ServiceError as exc:
+        _raise_http(exc)
 
 
 @ticktask_router.get(

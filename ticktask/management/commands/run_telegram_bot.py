@@ -21,6 +21,11 @@ class Command(BaseCommand):
         if not telegram.is_configured():
             raise CommandError("TELEGRAM_BOT_TOKEN is not set.")
 
+        try:
+            telegram.set_my_commands()
+        except Exception as exc:  # pylint: disable=broad-except
+            self.stderr.write(f"Could not register bot commands: {exc}")
+
         self.stdout.write(self.style.SUCCESS("Polling Telegram… (Ctrl-C to stop)"))
         offset = None
         while True:

@@ -177,3 +177,19 @@ TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="")
 TELEGRAM_BOT_USERNAME = config("TELEGRAM_BOT_USERNAME", default="")
 TELEGRAM_USE_WEBHOOK = config("TELEGRAM_USE_WEBHOOK", default=False, cast=bool)
 TELEGRAM_WEBHOOK_SECRET = config("TELEGRAM_WEBHOOK_SECRET", default="")
+
+# Cache backend. Used for the Telegram bot's short-lived conversation state
+# (multi-step flows keyed by chat). Defaults to in-process memory, which is
+# fine for development (single long-polling process) and tests. In production
+# with a webhook served by multiple workers, point this at Redis so the state
+# is shared, e.g. CACHE_BACKEND=django.core.cache.backends.redis.RedisCache and
+# CACHE_LOCATION=redis://localhost:6379/1.
+CACHES = {
+    "default": {
+        "BACKEND": config(
+            "CACHE_BACKEND",
+            default="django.core.cache.backends.locmem.LocMemCache",
+        ),
+        "LOCATION": config("CACHE_LOCATION", default="ticktask-local"),
+    }
+}

@@ -273,6 +273,12 @@
   const activeTimeEntryId = ref(null);
   const recentTimeEntries = ref([]);
 
+  // Keep the tracker in sync with changes made outside this tab (e.g. clocking
+  // in/out from the Telegram bot, or the server auto-closing a stale entry).
+  const POLL_INTERVAL_MS = 7000;
+  let syncInterval = null;
+  const mutating = ref(false); // guards against polling mid clock-in/out
+
   const dialogAddTaskVisible = ref(false);
   const dialogAddSubTaskVisible = ref(false);
   const currentTaskForSubtask = ref(null);
@@ -302,26 +308,17 @@
       tasks.value = await fetchTasks();
 
       const active = await getClockedIn();
-      if (active) {
-        const subtask = active.subtasks[0];
-        const entry = subtask.time_entries[0];
-
-        selectedTask.value = active;
-        activeTask.value = active;
-        selectedSubtask.value = subtask;
-        activeSubTask.value = subtask;
-        activeTimeEntryId.value = entry.id;
-        isClockedIn.value = true;
-        clockInTime.value = new Date(entry.clock_in);
-        expanded.value = [active.id];
-        startClockInTimer();
-        fetchRecentTimeEntries(subtask.id);
-      }
+      if (active) applyActiveEntry(active);
     } catch (error) {
       console.error("Error fetching tasks:", error);
       toast.error("Couldn't load your tasks.");
     } finally {
       loadingTasks.value = false;
+    }
+
+    startSyncPolling();
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
     }
   });
 
@@ -352,6 +349,7 @@
   }
 
   async function clockIn() {
+    mutating.value = true;
     try {
       const existing = await getClockedIn();
       if (existing) {
@@ -373,16 +371,21 @@
     } catch (err) {
       console.error("Error during clock in:", err);
       toast.error(err?.data?.detail || "Couldn't clock in.");
+    } finally {
+      mutating.value = false;
     }
   }
 
   async function clockOut() {
+    mutating.value = true;
     try {
       await apiClockOut(activeTimeEntryId.value);
       resetTracker();
     } catch (err) {
       console.error("Error during clock out:", err);
       toast.error("Couldn't clock out.");
+    } finally {
+      mutating.value = false;
     }
   }
 
@@ -397,9 +400,61 @@
 
   function startClockInTimer() {
     if (clockInterval) clearInterval(clockInterval);
+    clockInDuration.value = formatDuration(new Date() - clockInTime.value);
     clockInterval = setInterval(() => {
       clockInDuration.value = formatDuration(new Date() - clockInTime.value);
     }, 1000);
+  }
+
+  // Adopts the server's open entry as the active session in this tab.
+  function applyActiveEntry(active) {
+    const subtask = active.subtasks[0];
+    const entry = subtask.time_entries[0];
+
+    selectedTask.value = active;
+    activeTask.value = active;
+    selectedSubtask.value = subtask;
+    activeSubTask.value = subtask;
+    activeTimeEntryId.value = entry.id;
+    isClockedIn.value = true;
+    clockInTime.value = new Date(entry.clock_in);
+    if (!expanded.value.includes(active.id)) {
+      expanded.value = [...expanded.value, active.id];
+    }
+    startClockInTimer();
+    fetchRecentTimeEntries(subtask.id);
+  }
+
+  // Reconciles the local tracker with the server's open entry. Only acts when
+  // the open entry actually changed, so it won't disturb a running timer.
+  async function syncActiveState() {
+    if (mutating.value) return;
+    let active;
+    try {
+      active = await getClockedIn();
+    } catch {
+      return; // transient error; try again on the next tick
+    }
+
+    const serverEntryId = active?.subtasks?.[0]?.time_entries?.[0]?.id ?? null;
+    if (serverEntryId === activeTimeEntryId.value) return;
+
+    if (serverEntryId === null) {
+      resetTracker();
+      toast.info("Your active session was stopped elsewhere.");
+    } else {
+      applyActiveEntry(active);
+      toast.info("Synced your active session.");
+    }
+  }
+
+  function startSyncPolling() {
+    if (syncInterval) clearInterval(syncInterval);
+    syncInterval = setInterval(syncActiveState, POLL_INTERVAL_MS);
+  }
+
+  function handleVisibilityChange() {
+    if (!document.hidden) syncActiveState();
   }
 
   function openAddTaskDialog() {
@@ -486,5 +541,9 @@
 
   onBeforeUnmount(() => {
     if (clockInterval) clearInterval(clockInterval);
+    if (syncInterval) clearInterval(syncInterval);
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    }
   });
 </script>

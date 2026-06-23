@@ -43,4 +43,5 @@ class Command(BaseCommand):
             f"{settings.TELEGRAM_WEBHOOK_SECRET}/"
         )
         telegram.set_webhook(webhook_url)
+        telegram.set_my_commands()
         self.stdout.write(self.style.SUCCESS(f"Webhook set to {webhook_url}"))
