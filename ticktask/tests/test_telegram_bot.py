@@ -207,6 +207,66 @@ def test_events_empty_state(stub_telegram_http):
 
 
 @pytest.mark.django_db
+def test_tasks_shows_and_n_more_footer(stub_telegram_http):
+    """When more than the cap exist, a '…and N more' footer is appended."""
+    user = linked_user()
+    task = Task.objects.create(user=user, name="Proj")  # pylint: disable=no-member
+    sub = SubTask.objects.create(task=task, name="Code", description="")  # pylint: disable=no-member
+    now = timezone.now()
+    for i in range(13):  # cap is 10
+        TimeEntry.objects.create(  # pylint: disable=no-member
+            subtask=sub,
+            clock_in=now - timedelta(hours=i + 1),
+            clock_out=now - timedelta(hours=i, minutes=30),
+        )
+
+    telegram.process_update(command("/tasks"))
+
+    text = "\n".join(sent_texts(stub_telegram_http))
+    assert "…and 3 more" in text
+
+
+@pytest.mark.django_db
+def test_today_reports_tracked_total_and_events(stub_telegram_http):
+    """/today shows today's tracked time, the open entry, and today's events."""
+    user = linked_user()
+    task = Task.objects.create(user=user, name="Proj")  # pylint: disable=no-member
+    sub = SubTask.objects.create(task=task, name="Code", description="")  # pylint: disable=no-member
+    now = timezone.now()
+    # 90 min tracked earlier today.
+    TimeEntry.objects.create(  # pylint: disable=no-member
+        subtask=sub,
+        clock_in=now.replace(hour=0, minute=0, second=0, microsecond=0)
+        + timedelta(hours=1),
+        clock_out=now.replace(hour=0, minute=0, second=0, microsecond=0)
+        + timedelta(hours=2, minutes=30),
+    )
+    CalendarEvent.objects.create(  # pylint: disable=no-member
+        user=user,
+        title="Sync",
+        start=now.replace(hour=0, minute=0, second=0, microsecond=0)
+        + timedelta(hours=15),
+    )
+
+    telegram.process_update(command("/today"))
+
+    text = "\n".join(sent_texts(stub_telegram_http))
+    assert "Today" in text
+    assert "1h 30m" in text
+    assert "Sync" in text
+
+
+@pytest.mark.django_db
+def test_today_empty(stub_telegram_http):
+    """With nothing tracked or scheduled, /today still reports cleanly."""
+    linked_user()
+    telegram.process_update(command("/today"))
+    text = "\n".join(sent_texts(stub_telegram_http))
+    assert "Tracked: 0m" in text
+    assert "No events today" in text
+
+
+@pytest.mark.django_db
 def test_events_formatted_in_user_timezone(stub_telegram_http):
     """Event times are shown in the user's configured timezone, not UTC."""
     user = linked_user()
