@@ -157,33 +157,79 @@ def clock_out(user, entry_id: int) -> TimeEntry:
 
 def recent_time_entries(user, limit: int = 10):
     """
-    Returns the user's most recent time entries (newest first) on live
-    tasks/subtasks, with their subtask and task preloaded.
+    Returns ``(entries, total)``: the user's most recent time entries (newest
+    first, capped at ``limit``) on live tasks/subtasks with their subtask and
+    task preloaded, plus the total number available (for a "and N more" hint).
     """
-    return list(
+    qs = (
         TimeEntry.objects.select_related("subtask__task")  # pylint: disable=no-member
         .filter(
             subtask__task__user=user,
             subtask__deleted_at__isnull=True,
             subtask__task__deleted_at__isnull=True,
         )
-        .order_by("-clock_in")[:limit]
+        .order_by("-clock_in")
     )
+    return list(qs[:limit]), qs.count()
 
 
 def upcoming_events(user, days: int = 7, limit: int = 10):
     """
-    Returns the user's upcoming calendar events starting within the next
-    ``days`` days (or already ongoing), ordered by start.
+    Returns ``(events, total)``: the user's upcoming calendar events starting
+    within the next ``days`` days (or already ongoing), ordered by start and
+    capped at ``limit``, plus the total number available.
     """
     now = timezone.now()
     # Future events, plus ones already ongoing (started but not yet ended).
     not_over_yet = Q(start__gte=now) | Q(end__gte=now)
-    return list(
-        CalendarEvent.objects.filter(  # pylint: disable=no-member
-            not_over_yet, user=user, start__lte=now + timedelta(days=days)
-        ).order_by("start")[:limit]
+    qs = CalendarEvent.objects.filter(  # pylint: disable=no-member
+        not_over_yet, user=user, start__lte=now + timedelta(days=days)
+    ).order_by("start")
+    return list(qs[:limit]), qs.count()
+
+
+def tracked_total(user, start, end):
+    """Total tracked time (closed entries) on live tasks within ``[start, end]``."""
+    total = timedelta()
+    rows = TimeEntry.objects.filter(  # pylint: disable=no-member
+        subtask__task__user=user,
+        clock_out__isnull=False,
+        clock_in__gte=start,
+        clock_in__lte=end,
+        subtask__deleted_at__isnull=True,
+        subtask__task__deleted_at__isnull=True,
+    ).values("clock_in", "clock_out")
+    for row in rows:
+        total += row["clock_out"] - row["clock_in"]
+    return total
+
+
+def events_in_window(user, start, end):
+    """
+    Returns ``(event, occurrence_start)`` pairs whose occurrence falls within
+    ``[start, end]`` (recurring events expanded), sorted by occurrence start.
+    """
+    candidates = CalendarEvent.objects.filter(  # pylint: disable=no-member
+        user=user, start__lte=end
+    ).filter(
+        Q(recurrence="")
+        | Q(recurrence_until__isnull=True)
+        | Q(recurrence_until__gte=start)
     )
+
+    pairs = []
+    for event in candidates:
+        if not event.recurrence:
+            event_end = event.end or event.start
+            if event.start <= end and event_end >= start:
+                pairs.append((event, event.start))
+        else:
+            for occ in occurrences_between(
+                event.start, event.recurrence, event.recurrence_until, start, end
+            ):
+                pairs.append((event, occ))
+    pairs.sort(key=lambda pair: pair[1])
+    return pairs
 
 
 # --------------------------------------------------------------------------- #
