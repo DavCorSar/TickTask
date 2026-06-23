@@ -135,6 +135,17 @@ class CalendarEvent(models.Model):
     planned activity), independent from the tracked time entries.
     """
 
+    NONE = ""
+    WEEKLY = "weekly"
+    MONTHLY = "monthly"
+    YEARLY = "yearly"
+    RECURRENCE_CHOICES = [
+        (NONE, "Does not repeat"),
+        (WEEKLY, "Weekly"),
+        (MONTHLY, "Monthly"),
+        (YEARLY, "Yearly"),
+    ]
+
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="calendar_events"
     )
@@ -144,6 +155,14 @@ class CalendarEvent(models.Model):
     end = models.DateTimeField(null=True, blank=True)
     all_day = models.BooleanField(default=False)
     color = models.CharField(max_length=20, blank=True, default="")
+    # Recurrence: an empty string means a one-off event. ``start``/``end`` define
+    # the first occurrence; later ones are derived (see ``services``). Occurrences
+    # are never stored as rows — they are expanded on read.
+    recurrence = models.CharField(
+        max_length=10, blank=True, default=NONE, choices=RECURRENCE_CHOICES
+    )
+    # Optional inclusive cut-off: no occurrence starts after this. None = forever.
+    recurrence_until = models.DateTimeField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -213,7 +232,9 @@ class UserAccessRequest(models.Model):
 class SentReminder(models.Model):
     """
     Records that a reminder of a given ``kind`` ("lead" / "start") was already
-    sent for an event, so the scheduler never sends it twice. Cleared when the
+    sent for one ``occurrence`` of an event, so the scheduler never sends it
+    twice. For a one-off event the occurrence is just its ``start``; for a
+    recurring event each occurrence is tracked separately. Cleared when the
     event is edited (and cascaded away when it is deleted).
     """
 
@@ -221,11 +242,16 @@ class SentReminder(models.Model):
         CalendarEvent, on_delete=models.CASCADE, related_name="sent_reminders"
     )
     kind = models.CharField(max_length=10)
+    # The specific occurrence (its start) this reminder was sent for. Always set
+    # explicitly by the scheduler; the default only exists so the field can be
+    # added to existing rows.
+    occurrence = models.DateTimeField(default=timezone.now)
     sent_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["event", "kind"], name="unique_reminder_per_event_kind"
+                fields=["event", "kind", "occurrence"],
+                name="unique_reminder_per_event_kind_occurrence",
             )
         ]
