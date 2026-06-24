@@ -1,0 +1,16 @@
+# Frontend production image: build the Nuxt SPA, then serve the static output
+# with nginx (which also reverse-proxies the API to the backend).
+FROM node:20-slim AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+# The SPA calls the API on the same origin; nginx proxies /api to the backend.
+ENV NUXT_PUBLIC_API_URL=/api
+RUN npm run generate
+
+FROM nginx:1.27-alpine
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=build /app/.output/public /usr/share/nginx/html

@@ -1,0 +1,106 @@
+# Production stack. See DEPLOY.md for the full guide.
+#
+#   cp .env.prod.example .env   # then fill it in (DEBUG=False, secret, hosts…)
+#   docker compose -f docker-compose.prod.yml up --build -d
+#   docker compose -f docker-compose.prod.yml exec backend \
+#       uv run python ticktask/manage.py createsuperuser
+#
+#   redis     – Celery broker/result backend + Django cache
+#   backend   – gunicorn (migrates + collectstatic on start), internal :8000
+#   worker    – Celery worker (reminders + autoclose)
+#   beat      – Celery beat (scheduler)
+#   bot       – Telegram long-polling
+#   frontend  – nginx: serves the built SPA, proxies /api + /admin to the backend
+#
+# nginx is the only published service (:80). Terminate TLS here or upstream.
+
+x-backend: &backend
+  build: .
+  env_file: .env
+  environment:
+    CELERY_BROKER_URL: redis://redis:6379/0
+    CELERY_RESULT_BACKEND: redis://redis:6379/0
+  volumes:
+    - app-data:/data # persistent SQLite db (set DJANGO_DB_PATH=/data/db.sqlite3)
+  depends_on:
+    - redis
+  restart: unless-stopped
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+  backend:
+    <<: *backend
+    command: >
+      sh -c "uv run python ticktask/manage.py migrate --noinput &&
+             uv run python ticktask/manage.py collectstatic --noinput &&
+             uv run gunicorn ticktask.server.wsgi:application
+                 --bind 0.0.0.0:8000 --workers 3 --timeout 60"
+
+  worker:
+    <<: *backend
+    command: uv run celery -A ticktask worker -l info
+    depends_on:
+      - redis
+      - backend
+
+  beat:
+    <<: *backend
+    command: uv run celery -A ticktask beat -l info --schedule /tmp/celerybeat-schedule
+    depends_on:
+      - redis
+      - backend
+
+  bot:
+    <<: *backend
+    command: uv run python ticktask/manage.py run_telegram_bot
+    depends_on:
+      - backend
+
+  frontend:
+    build:
+      context: ./gui
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "80:80" # LAN access; not needed for the tunnel (can be removed)
+    depends_on:
+      - backend
+
+  # Public access via Tailscale Funnel — outbound only, so no open ports, no
+  # static IP, free HTTPS, and it works behind CGNAT (no domain needed). It
+  # connects with an auth key (TS_AUTHKEY in .env) and funnels its public
+  # `https://<hostname>.<tailnet>.ts.net` URL to the nginx frontend per
+  # tailscale/funnel.json. `hostname` below is the URL's first label. Enable the
+  # Funnel feature for your tailnet first (see DEPLOY.md), then start the stack
+  # with the `public` profile:
+  #   docker compose -f docker-compose.prod.yml --profile public up --build -d
+  tailscale:
+    image: tailscale/tailscale:latest
+    hostname: ticktask # -> https://ticktask.<your-tailnet>.ts.net
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/funnel.json
+      TS_USERSPACE: "false"
+      TS_AUTH_ONCE: "true"
+    volumes:
+      - ./tailscale:/config # serve/funnel config (mounted as a dir, not a file)
+      - tailscale-state:/var/lib/tailscale
+    cap_add:
+      - net_admin
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    profiles: ["public"]
+
+volumes:
+  app-data:
+  redis-data:
+  tailscale-state:
