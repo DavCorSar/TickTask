@@ -34,8 +34,17 @@ SECRET_KEY = config("DJANGO_SECRET_KEY", default="__DEFAULT_SECRET_KEY__")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config("DJANGO_DEBUG", default=True, cast=bool)
 
-ALLOWED_HOSTS = ["*"]
-CSRF_TRUSTED_ORIGINS = ["http://localhost:8000"]
+
+def _csv(value):
+    """Parses a comma-separated env value into a stripped list."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+# Defaults are dev-friendly ("*"); production must pin these via the env.
+ALLOWED_HOSTS = config("DJANGO_ALLOWED_HOSTS", default="*", cast=_csv)
+CSRF_TRUSTED_ORIGINS = config(
+    "DJANGO_CSRF_TRUSTED_ORIGINS", default="http://localhost:8000", cast=_csv
+)
 
 # Application definition
 
@@ -52,20 +61,23 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "corsheaders.middleware.CorsMiddleware",
-    "django.middleware.common.CommonMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoise serves the backend's own static (the Django admin) in production.
+    "whitenoise.middleware.WhiteNoiseMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
-    # "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "ticktask.server.urls"
 
-CORS_ALLOW_ALL_ORIGINS = True
+# Dev allows any origin; production pins the frontend origin(s) via the env.
+CORS_ALLOW_ALL_ORIGINS = config("CORS_ALLOW_ALL_ORIGINS", default=True, cast=bool)
+CORS_ALLOWED_ORIGINS = config("CORS_ALLOWED_ORIGINS", default="", cast=_csv)
 
 TEMPLATES = [
     {
@@ -92,7 +104,8 @@ WSGI_APPLICATION = "ticktask.server.wsgi.application"
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        # Configurable so production can point it at a persistent volume.
+        "NAME": config("DJANGO_DB_PATH", default=str(BASE_DIR / "db.sqlite3")),
     }
 }
 
@@ -131,13 +144,46 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = "/_nuxt/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR / "gui", "dist", "_nuxt")]
+# The frontend (Nuxt SPA) is served by nginx in production; Django's own static
+# is just the admin, collected into STATIC_ROOT and served by WhiteNoise.
+STATIC_URL = "/django-static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": (
+            "whitenoise.storage.CompressedManifestStaticFilesStorage"
+            if not DEBUG
+            else "django.contrib.staticfiles.storage.StaticFilesStorage"
+        )
+    },
+}
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --------------------------------------------------------------------------- #
+# Production security hardening
+# --------------------------------------------------------------------------- #
+
+# Trust the X-Forwarded-Proto from the TLS-terminating reverse proxy (nginx).
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+if not DEBUG:
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    # Redirect HTTP→HTTPS at the app (disable if the proxy already does it).
+    SECURE_SSL_REDIRECT = config(
+        "DJANGO_SECURE_SSL_REDIRECT", default=True, cast=bool
+    )
+    # HSTS — start small when first enabling, then raise. 0 disables it.
+    SECURE_HSTS_SECONDS = config("DJANGO_HSTS_SECONDS", default=31536000, cast=int)
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
 
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(
