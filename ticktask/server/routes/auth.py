@@ -34,6 +34,10 @@ def _issue_session(request, user) -> dict:
     straight away.
     """
     refresh = RefreshToken.for_user(user)
+    # Carry the username in the token so the frontend (which only has the decoded
+    # JWT, not a user endpoint) can show it. Claims set on the refresh token are
+    # copied onto the access token derived from it.
+    refresh["username"] = user.username
     UserLoginRecord.objects.create(  # pylint: disable=no-member
         user=user,
         ip_address=request.META.get("REMOTE_ADDR", ""),
