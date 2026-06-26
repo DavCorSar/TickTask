@@ -7,6 +7,7 @@ shared service activates the account so the user can log in.
 
 import json
 
+import jwt
 import pytest
 from django.test import Client
 from django.contrib.auth.models import User
@@ -134,6 +135,18 @@ def test_approved_user_can_log_in():
     resp = post(LOGIN, {"username": "frank", "password": GOOD_PASSWORD})
     assert resp.status_code == 200
     assert resp.json()["access"]
+
+
+@pytest.mark.django_db
+def test_access_token_carries_username_claim():
+    """The access token embeds the username so the frontend can display it."""
+    post(REGISTER, {"username": "ivy", "password": GOOD_PASSWORD})
+    services.approve_access(User.objects.get(username="ivy").access_request)  # pylint: disable=no-member
+
+    resp = post(LOGIN, {"username": "ivy", "password": GOOD_PASSWORD})
+    assert resp.status_code == 200
+    claims = jwt.decode(resp.json()["access"], options={"verify_signature": False})
+    assert claims["username"] == "ivy"
 
 
 # --------------------------------------------------------------------------- #
