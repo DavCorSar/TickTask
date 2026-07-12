@@ -21,6 +21,7 @@ is stored per user as a ``chat_id`` (see ``UserTelegramSettings``).
 import json
 import logging
 import urllib.request
+import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
@@ -48,6 +49,7 @@ BOT_COMMANDS = [
     ("clockin", "Start tracking time on a subtask"),
     ("clockout", "Stop the current time entry"),
     ("today", "Today's tracked time and events"),
+    ("report", "Get a dashboard report with charts"),
     ("tasks", "Show your recent activity"),
     ("events", "Show your upcoming events"),
     ("newtask", "Create a new task"),
@@ -76,6 +78,72 @@ def _request(method: str, payload: dict) -> dict:
     )
     with urllib.request.urlopen(request, timeout=30) as response:  # nosec B310
         return json.loads(response.read().decode())
+
+
+def _request_files(method: str, data: dict, files: dict) -> dict:
+    """
+    POSTs a ``multipart/form-data`` request (used to upload chart images). Kept
+    parallel to ``_request`` so photo sends can be stubbed in tests too. ``data``
+    holds string fields; ``files`` maps a field name to ``(filename, bytes)``.
+    """
+    url = _API_URL.format(token=settings.TELEGRAM_BOT_TOKEN, method=method)
+    boundary = uuid.uuid4().hex
+    body = bytearray()
+    for name, value in data.items():
+        body += f"--{boundary}\r\n".encode()
+        body += f'Content-Disposition: form-data; name="{name}"\r\n\r\n'.encode()
+        body += f"{value}\r\n".encode()
+    for name, (filename, content) in files.items():
+        body += f"--{boundary}\r\n".encode()
+        body += (
+            f'Content-Disposition: form-data; name="{name}"; '
+            f'filename="{filename}"\r\n'.encode()
+        )
+        body += b"Content-Type: application/octet-stream\r\n\r\n"
+        body += content + b"\r\n"
+    body += f"--{boundary}--\r\n".encode()
+
+    request = urllib.request.Request(
+        url,
+        data=bytes(body),
+        headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:  # nosec B310
+        return json.loads(response.read().decode())
+
+
+def send_photo(chat_id, photo: bytes, caption: str | None = None,
+               filename: str = "chart.png") -> None:
+    """Uploads a single PNG to a chat, optionally with a caption."""
+    if not is_configured():
+        raise RuntimeError("Telegram bot is not configured (TELEGRAM_BOT_TOKEN).")
+    data = {"chat_id": str(chat_id)}
+    if caption is not None:
+        data["caption"] = caption
+    _request_files("sendPhoto", data, {"photo": (filename, photo)})
+
+
+def send_media_group(chat_id, images: list, caption: str | None = None) -> None:
+    """
+    Uploads several PNGs as one album. ``images`` is a list of
+    ``(filename, bytes)``; ``caption`` (if any) rides on the first item, which is
+    how Telegram shows an album-level caption.
+    """
+    if not is_configured():
+        raise RuntimeError("Telegram bot is not configured (TELEGRAM_BOT_TOKEN).")
+    media, files = [], {}
+    for i, (filename, content) in enumerate(images):
+        key = f"photo{i}"
+        item = {"type": "photo", "media": f"attach://{key}"}
+        if i == 0 and caption is not None:
+            item["caption"] = caption
+        media.append(item)
+        files[key] = (filename, content)
+    _request_files(
+        "sendMediaGroup",
+        {"chat_id": str(chat_id), "media": json.dumps(media)},
+        files,
+    )
 
 
 def send_message(chat_id, text: str, reply_markup: dict | None = None) -> None:
@@ -243,6 +311,7 @@ def _handle_command(user, chat_id, text: str) -> None:
     handler = {
         "help": lambda u, c: _send_help(c),
         "today": _cmd_today,
+        "report": _cmd_report,
         "tasks": _cmd_recent,
         "recent": _cmd_recent,
         "events": _cmd_events,
@@ -299,6 +368,22 @@ def _cmd_today(user, chat_id) -> None:
         lines.append("")
         lines.append("No events today.")
     _safe_send(chat_id, "\n".join(lines))
+
+
+def _cmd_report(user, chat_id) -> None:
+    """``/report`` — renders the dashboard charts and sends them as an album."""
+    from ticktask import reports  # pylint: disable=import-outside-toplevel
+
+    if not reports.has_data(user):
+        _safe_send(chat_id, "No tracked time yet. Use /clockin to get started.")
+        return
+    _safe_send(chat_id, "📊 Building your report…")
+
+    def build_and_send():
+        caption, images = reports.build_report(user, _user_zone(user))
+        send_media_group(chat_id, images, caption)
+
+    _safe(build_and_send)
 
 
 def _cmd_recent(user, chat_id) -> None:
