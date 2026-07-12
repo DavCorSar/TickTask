@@ -38,21 +38,68 @@
           <p class="mt-0.5 text-sm text-muted-foreground">{{ rangeLabel }}</p>
         </template>
         <template #actions>
-          <div class="inline-flex rounded-xl border border-border p-0.5">
-            <button
-              v-for="option in BUCKET_OPTIONS"
-              :key="option.value"
-              class="rounded-lg px-3 py-1 text-sm font-medium transition-colors"
-              :class="
-                bucket === option.value
-                  ? 'bg-primary text-primary-foreground shadow-soft'
-                  : 'text-muted-foreground hover:text-foreground'
-              "
-              @click="bucket = option.value">
-              {{ option.label }}
-            </button>
+          <div class="flex flex-wrap items-center justify-end gap-2">
+            <div class="inline-flex rounded-xl border border-border p-0.5">
+              <button
+                v-for="option in RANGE_OPTIONS"
+                :key="option.value"
+                class="rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                :class="
+                  range === option.value
+                    ? 'bg-primary text-primary-foreground shadow-soft'
+                    : 'text-muted-foreground hover:text-foreground'
+                "
+                @click="range = option.value">
+                {{ option.label }}
+              </button>
+              <button
+                class="rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                :class="
+                  range === 'custom'
+                    ? 'bg-primary text-primary-foreground shadow-soft'
+                    : 'text-muted-foreground hover:text-foreground'
+                "
+                @click="selectCustomRange">
+                Custom
+              </button>
+            </div>
+            <div class="inline-flex rounded-xl border border-border p-0.5">
+              <button
+                v-for="option in BUCKET_OPTIONS"
+                :key="option.value"
+                class="rounded-lg px-3 py-1 text-sm font-medium transition-colors"
+                :class="
+                  bucket === option.value
+                    ? 'bg-primary text-primary-foreground shadow-soft'
+                    : 'text-muted-foreground hover:text-foreground'
+                "
+                @click="bucket = option.value">
+                {{ option.label }}
+              </button>
+            </div>
           </div>
         </template>
+
+        <div
+          v-if="range === 'custom'"
+          class="mb-4 flex flex-wrap items-center gap-2 text-sm">
+          <label class="flex items-center gap-1.5 text-muted-foreground">
+            From
+            <input
+              v-model="customStart"
+              type="date"
+              :max="customEnd || undefined"
+              class="rounded-lg border border-border bg-background px-2 py-1 text-foreground" />
+          </label>
+          <label class="flex items-center gap-1.5 text-muted-foreground">
+            To
+            <input
+              v-model="customEnd"
+              type="date"
+              :min="customStart || undefined"
+              class="rounded-lg border border-border bg-background px-2 py-1 text-foreground" />
+          </label>
+        </div>
 
         <div class="relative min-h-[240px]">
           <div
@@ -86,6 +133,55 @@
       </UiCard>
     </div>
 
+    <!-- Composition + share -->
+    <div class="grid gap-6 lg:grid-cols-3">
+      <UiCard
+        class="lg:col-span-2"
+        title="Composition over time"
+        :subtitle="rangeLabel">
+        <div class="relative min-h-[240px]">
+          <div
+            v-if="seriesLoading"
+            class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
+            <Icon
+              name="lucide:loader-circle"
+              class="size-6 animate-spin text-muted-foreground" />
+          </div>
+          <DashboardStackedBar
+            :buckets="series?.buckets || []"
+            :tasks="series?.by_task || []"
+            :bucket="bucket" />
+        </div>
+      </UiCard>
+
+      <UiCard title="Share by task" subtitle="In the selected range">
+        <div class="relative min-h-[240px]">
+          <div
+            v-if="seriesLoading"
+            class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
+            <Icon
+              name="lucide:loader-circle"
+              class="size-6 animate-spin text-muted-foreground" />
+          </div>
+          <DashboardDonut :tasks="series?.by_task || []" />
+        </div>
+      </UiCard>
+    </div>
+
+    <!-- Daily activity heatmap -->
+    <UiCard title="Daily activity" subtitle="Hours tracked per day over the last year">
+      <div class="relative min-h-[160px]">
+        <div
+          v-if="heatmapLoading"
+          class="absolute inset-0 z-10 flex items-center justify-center rounded-xl bg-card/60 backdrop-blur-sm">
+          <Icon
+            name="lucide:loader-circle"
+            class="size-6 animate-spin text-muted-foreground" />
+        </div>
+        <DashboardHeatmap :buckets="heatmap?.buckets || []" />
+      </div>
+    </UiCard>
+
     <!-- Share of the last 7 days, per task -->
     <UiCard title="This week by task" subtitle="Share of time tracked in the last 7 days">
       <div class="relative min-h-[200px]">
@@ -117,12 +213,21 @@
   const toast = useToast();
 
   const bucket = ref("day");
+  const range = ref(30);
+  const customStart = ref("");
+  const customEnd = ref("");
   const includeDeleted = ref(false);
   const summary = ref(null);
   const series = ref(null);
   const seriesLoading = ref(false);
   const weekly = ref(null);
   const weeklyLoading = ref(false);
+  const heatmap = ref(null);
+  const heatmapLoading = ref(false);
+
+  // The heatmap always shows a fixed trailing year of daily data, independent
+  // of the trend chart's range/bucket selection.
+  const HEATMAP_DAYS = 53 * 7;
 
   const statCards = computed(() => {
     const s = summary.value;
@@ -183,13 +288,37 @@
     }
   }
 
+  // Resolves the current selection to a `{ start, end }` range, or null when a
+  // custom range is incomplete/invalid (nothing to load yet).
+  function currentRange() {
+    if (range.value !== "custom") return rangeForDays(range.value);
+    if (!customStart.value || !customEnd.value) return null;
+    const start = new Date(`${customStart.value}T00:00:00`);
+    const end = new Date(`${customEnd.value}T23:59:59.999`);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+    if (end < start) return null;
+    return { start, end };
+  }
+
+  // Switches to a custom range, seeding the inputs from the last 30 days so
+  // they are never empty when the pickers first appear.
+  function selectCustomRange() {
+    if (!customStart.value || !customEnd.value) {
+      const { start, end } = rangeForDays(30);
+      customStart.value = toDateInput(start);
+      customEnd.value = toDateInput(end);
+    }
+    range.value = "custom";
+  }
+
   async function loadSeries() {
+    const window = currentRange();
+    if (!window) return;
     seriesLoading.value = true;
     try {
-      const { start, end } = rangeForBucket(bucket.value);
       series.value = await getTimeSeries(
-        start.toISOString(),
-        end.toISOString(),
+        window.start.toISOString(),
+        window.end.toISOString(),
         bucket.value,
         includeDeleted.value,
       );
@@ -201,11 +330,29 @@
     }
   }
 
+  async function loadHeatmap() {
+    heatmapLoading.value = true;
+    try {
+      const { start, end } = rangeForDays(HEATMAP_DAYS);
+      heatmap.value = await getTimeSeries(
+        start.toISOString(),
+        end.toISOString(),
+        "day",
+        includeDeleted.value,
+      );
+    } catch (err) {
+      console.error("Error loading dashboard heatmap:", err);
+      toast.error("Couldn't load the activity heatmap.");
+    } finally {
+      heatmapLoading.value = false;
+    }
+  }
+
   async function restoreTask(taskId) {
     try {
       await apiRestoreTask(taskId);
       toast.success("Task restored.");
-      await Promise.all([loadSummary(), loadSeries(), loadWeekly()]);
+      await Promise.all([loadSummary(), loadSeries(), loadWeekly(), loadHeatmap()]);
     } catch (err) {
       console.error("Error restoring task:", err);
       toast.error("Couldn't restore the task.");
@@ -216,16 +363,16 @@
     try {
       await apiRestoreSubtask(subtaskId);
       toast.success("Subtask restored.");
-      await Promise.all([loadSummary(), loadSeries(), loadWeekly()]);
+      await Promise.all([loadSummary(), loadSeries(), loadWeekly(), loadHeatmap()]);
     } catch (err) {
       console.error("Error restoring subtask:", err);
       toast.error("Couldn't restore the subtask.");
     }
   }
 
-  onMounted(() => Promise.all([loadSummary(), loadWeekly()]));
-  watch(bucket, loadSeries, { immediate: true });
+  onMounted(() => Promise.all([loadSummary(), loadWeekly(), loadHeatmap()]));
+  watch([bucket, range, customStart, customEnd], loadSeries, { immediate: true });
   watch(includeDeleted, () =>
-    Promise.all([loadSummary(), loadSeries(), loadWeekly()]),
+    Promise.all([loadSummary(), loadSeries(), loadWeekly(), loadHeatmap()]),
   );
 </script>
