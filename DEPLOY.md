@@ -143,7 +143,7 @@ or just copy `/data/db.sqlite3` from the volume while the stack is stopped.
 
 `.github/workflows/deploy.yml` deploys automatically on every push to `main`
 (i.e. when a PR is merged): it runs the full test suite on GitHub-hosted runners
-and, **only if everything passes**, tells a **self-hosted runner on the tower**
+and, **only if everything passes**, tells a **self-hosted runner on the home server**
 to pull `main` and rebuild the stack, then health-checks the app and pings
 Telegram with the outcome.
 
@@ -151,7 +151,7 @@ The runner connects **outbound** to GitHub, so there are no open ports and
 nothing to expose — the same reason the rest of the stack is outbound-only. It is
 independent from the Tailscale SSH access; you don't need SSH for deploys.
 
-### One-time setup on the tower
+### One-time setup on the home server
 
 1. **Deploy from a git clone.** The runner deploys *in place* from an existing
    clone that holds the real `.env` and owns the running Docker volumes (so your
@@ -161,7 +161,7 @@ independent from the Tailscale SSH access; you don't need SSH for deploys.
 
 2. **Install the runner.** In GitHub: **repo → Settings → Actions → Runners →
    New self-hosted runner** (Linux/x64). Follow the shown `download` + `config.sh`
-   commands on the tower; when `config.sh` asks for labels, add **`ticktask`**
+   commands on the home server; when `config.sh` asks for labels, add **`ticktask`**
    (the workflow targets `runs-on: [self-hosted, ticktask]`). Run it as a
    service so it survives reboots:
 
