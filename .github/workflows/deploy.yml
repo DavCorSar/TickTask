@@ -1,0 +1,141 @@
+# Continuous deployment to the self-hosted tower.
+#
+# On every push to `main` (i.e. when a PR is merged), this runs the full test
+# suite on GitHub-hosted runners and — only if everything passes — tells the
+# self-hosted runner living on the tower to pull `main` and rebuild the prod
+# stack. A final job pings Telegram with the outcome.
+#
+# Prerequisites (one-time, see DEPLOY.md → "Continuous deployment"):
+#   - A self-hosted Actions runner installed on the tower with the `ticktask`
+#     label, whose user is in the `docker` group.
+#   - Repository variable  DEPLOY_DIR             — the deployment clone on the
+#     tower (the dir holding docker-compose.prod.yml + the real .env).
+#   - Repository secrets    TELEGRAM_BOT_TOKEN / TELEGRAM_ALERT_CHAT_ID
+#     (optional — the notify job is skipped if unset).
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+# Never let two deploys of main overlap; queue them instead of cancelling so a
+# rebuild is never interrupted half-way.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+jobs:
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: python -m pip install --upgrade pip uv
+      - name: Sync dependencies
+        run: uv sync
+      - name: Lint (syntax errors / undefined names)
+        run: uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics --exclude=.venv
+      - name: Test with pytest
+        run: uv run pytest
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gui
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm run test
+
+  deploy:
+    name: Deploy to the tower
+    needs: [backend-tests, frontend-tests]
+    runs-on: [self-hosted, ticktask]
+    steps:
+      - name: Pull main and rebuild the prod stack
+        env:
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DEPLOY_DIR}" ]; then
+            echo "::error::DEPLOY_DIR repository variable is not set." >&2
+            exit 1
+          fi
+          cd "${DEPLOY_DIR}"
+          echo "Deploying in $(pwd)"
+          git fetch --prune origin
+          git reset --hard origin/main
+          docker compose -f docker-compose.prod.yml --profile public up \
+            --build -d --remove-orphans
+
+      - name: Wait for the app to become healthy
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost/api/openapi.json >/dev/null 2>&1; then
+              echo "Healthy after attempt ${i}."
+              exit 0
+            fi
+            echo "Not ready yet (attempt ${i}/30)…"
+            sleep 5
+          done
+          echo "::error::App did not become healthy within ~150s." >&2
+          exit 1
+
+      - name: Prune dangling images
+        if: always()
+        run: docker image prune -f || true
+
+  notify:
+    name: Notify via Telegram
+    needs: [backend-tests, frontend-tests, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send the outcome to Telegram
+        env:
+          TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          BE_RESULT: ${{ needs.backend-tests.result }}
+          FE_RESULT: ${{ needs.frontend-tests.result }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ -z "${TOKEN}" ] || [ -z "${CHAT_ID}" ]; then
+            echo "Telegram secrets not set; skipping notification."
+            exit 0
+          fi
+          short_sha="${SHA:0:7}"
+          if [ "${DEPLOY_RESULT}" = "success" ]; then
+            text="✅ TickTask desplegado en la torre (commit ${short_sha})."
+          elif [ "${BE_RESULT}" != "success" ] || [ "${FE_RESULT}" != "success" ]; then
+            text="❌ Despliegue abortado: fallaron los tests (backend=${BE_RESULT}, frontend=${FE_RESULT}) para ${short_sha}. Logs: ${RUN_URL}"
+          else
+            text="❌ Falló el despliegue en la torre (deploy=${DEPLOY_RESULT}) para ${short_sha}. Logs: ${RUN_URL}"
+          fi
+          curl -fsS "https://api.telegram.org/bot${TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${CHAT_ID}" \
+            --data-urlencode "text=${text}" >/dev/null
+          echo "Notification sent."
