@@ -196,6 +196,11 @@ On merge to `main`: tests run → if green, the runner does
 `http://localhost/api/openapi.json` to answer, prunes dangling images, and
 reports success/failure to Telegram. Watch it under the repo's **Actions** tab.
 
+That health check reaches the backend with a `localhost` Host header, so keep
+`localhost` / `127.0.0.1` in `DJANGO_ALLOWED_HOSTS` (see `.env.prod.example`) or
+it will be rejected with a 400 and the deploy will be marked failed even though
+the app is up.
+
 You can still deploy manually any time with the `git pull` + `up --build -d`
 commands in section 5 — the CD just automates exactly that.
 
