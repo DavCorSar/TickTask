@@ -139,6 +139,66 @@ docker compose -f docker-compose.prod.yml exec backend \
 
 or just copy `/data/db.sqlite3` from the volume while the stack is stopped.
 
+## 6. Continuous deployment (optional)
+
+`.github/workflows/deploy.yml` deploys automatically on every push to `main`
+(i.e. when a PR is merged): it runs the full test suite on GitHub-hosted runners
+and, **only if everything passes**, tells a **self-hosted runner on the home server**
+to pull `main` and rebuild the stack, then health-checks the app and pings
+Telegram with the outcome.
+
+The runner connects **outbound** to GitHub, so there are no open ports and
+nothing to expose — the same reason the rest of the stack is outbound-only. It is
+independent from the Tailscale SSH access; you don't need SSH for deploys.
+
+### One-time setup on the home server
+
+1. **Deploy from a git clone.** The runner deploys *in place* from an existing
+   clone that holds the real `.env` and owns the running Docker volumes (so your
+   database is preserved). If you already deploy by `git pull` from a directory,
+   use that one. Otherwise clone the repo and do the first manual launch (steps
+   2–4) there.
+
+2. **Install the runner.** In GitHub: **repo → Settings → Actions → Runners →
+   New self-hosted runner** (Linux/x64). Follow the shown `download` + `config.sh`
+   commands on the home server; when `config.sh` asks for labels, add **`ticktask`**
+   (the workflow targets `runs-on: [self-hosted, ticktask]`). Run it as a
+   service so it survives reboots:
+
+   ```sh
+   sudo ./svc.sh install
+   sudo ./svc.sh start
+   ```
+
+   The runner's user must be able to run Docker without sudo:
+
+   ```sh
+   sudo usermod -aG docker "$USER"   # then re-login (or reboot) so it takes effect
+   ```
+
+3. **Point the workflow at your deploy directory.** In GitHub: **repo → Settings
+   → Secrets and variables → Actions → Variables → New repository variable**,
+   name `DEPLOY_DIR`, value the absolute path of the clone from step 1 (e.g.
+   `/home/david/ticktask`).
+
+4. **(Optional) Telegram deploy alerts.** Add two **repository secrets** (same
+   screen, *Secrets* tab): `TELEGRAM_BOT_TOKEN` (your bot token) and
+   `TELEGRAM_ALERT_CHAT_ID` (the chat to notify — your own chat id; it's stored on
+   your `UserTelegramSettings` row in the Django admin once you've linked the
+   bot). If either is missing, the notify step is simply skipped.
+
+### How a deploy runs
+
+On merge to `main`: tests run → if green, the runner does
+`git fetch && git reset --hard origin/main` in `DEPLOY_DIR` and
+`docker compose -f docker-compose.prod.yml --profile public up --build -d`
+(migrations + `collectstatic` still run on backend start), waits for
+`http://localhost/api/openapi.json` to answer, prunes dangling images, and
+reports success/failure to Telegram. Watch it under the repo's **Actions** tab.
+
+You can still deploy manually any time with the `git pull` + `up --build -d`
+commands in section 5 — the CD just automates exactly that.
+
 ## Notes & limits
 
 - **SQLite** is fine for a small private deployment but serializes writes. If the

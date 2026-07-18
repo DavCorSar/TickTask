@@ -4,7 +4,9 @@ name: Frontend
 
 on:
   push:
-    branches: [ "**" ]
+    # `main` is tested (and then deployed) by deploy.yml, so skip it here to
+    # avoid running the suite twice on every merge.
+    branches-ignore: [ "main" ]
 
 jobs:
   test:
