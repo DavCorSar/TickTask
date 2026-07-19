@@ -21,6 +21,8 @@ from ticktask.models import (
     CalendarEvent,
     UserTelegramSettings,
     UserAccessRequest,
+    NoteGroup,
+    Note,
 )
 
 CHAT_ID = 42
@@ -461,6 +463,90 @@ def test_new_command_cancels_previous_flow(stub_telegram_http):
     telegram.process_update(text_reply("Orphan"))
 
     assert not Task.objects.filter(user=user, name="Orphan").exists()  # pylint: disable=no-member
+
+
+# --------------------------------------------------------------------------- #
+# Notes (/notes list + /newnote flow + toggle buttons)
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.django_db
+def test_notes_lists_groups_and_notes(stub_telegram_http):
+    """/notes shows each group with its notes and a toggle button per note."""
+    user = linked_user()
+    group = NoteGroup.objects.create(user=user, name="Shopping")  # pylint: disable=no-member
+    note = Note.objects.create(group=group, title="Milk")  # pylint: disable=no-member
+
+    telegram.process_update(command("/notes"))
+
+    text = "\n".join(sent_texts(stub_telegram_http))
+    assert "Shopping" in text
+    assert "Milk" in text
+    assert f"nt:done:{note.id}" in callback_datas(last_markup(stub_telegram_http))
+
+
+@pytest.mark.django_db
+def test_notes_empty_state(stub_telegram_http):
+    linked_user()
+    telegram.process_update(command("/notes"))
+    assert any("no notes" in t.lower() for t in sent_texts(stub_telegram_http))
+
+
+@pytest.mark.django_db
+def test_toggle_note_button_flips_done(stub_telegram_http):
+    user = linked_user()
+    group = NoteGroup.objects.create(user=user, name="Shopping")  # pylint: disable=no-member
+    note = Note.objects.create(group=group, title="Milk")  # pylint: disable=no-member
+
+    telegram.process_update(callback(f"nt:done:{note.id}"))
+
+    note.refresh_from_db()
+    assert note.done is True
+
+
+@pytest.mark.django_db
+def test_newnote_flow_creates_note(stub_telegram_http):
+    """/newnote → pick a group → send text creates the note in that group."""
+    user = linked_user()
+    group = NoteGroup.objects.create(user=user, name="Shopping")  # pylint: disable=no-member
+
+    telegram.process_update(command("/newnote"))
+    datas = callback_datas(last_markup(stub_telegram_http))
+    assert f"nt:g:{group.id}" in datas
+    assert "nt:newg" in datas
+
+    telegram.process_update(callback(f"nt:g:{group.id}"))
+    telegram.process_update(text_reply("Eggs"))
+
+    assert Note.objects.filter(group=group, title="Eggs").exists()  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_newnote_new_group_flow_creates_group_then_note(stub_telegram_http):
+    """The '➕ New group' path creates the group and chains into the note."""
+    user = linked_user()
+
+    telegram.process_update(command("/newnote"))
+    telegram.process_update(callback("nt:newg"))
+    telegram.process_update(text_reply("Ideas"))  # group name
+    telegram.process_update(text_reply("Write a book"))  # note text
+
+    group = NoteGroup.objects.get(user=user, name="Ideas")  # pylint: disable=no-member
+    assert Note.objects.filter(group=group, title="Write a book").exists()  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_newnote_duplicate_group_name_reported(stub_telegram_http):
+    """Creating a group whose name is taken surfaces the error, no dup created."""
+    user = linked_user()
+    NoteGroup.objects.create(user=user, name="Ideas")  # pylint: disable=no-member
+
+    telegram.process_update(command("/newnote"))
+    telegram.process_update(callback("nt:newg"))
+    telegram.process_update(text_reply("Ideas"))
+
+    assert NoteGroup.objects.filter(user=user, name="Ideas").count() == 1  # pylint: disable=no-member
+    assert any("⚠️" in t for t in sent_texts(stub_telegram_http))
 
 
 # --------------------------------------------------------------------------- #

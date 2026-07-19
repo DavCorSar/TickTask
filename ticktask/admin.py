@@ -16,6 +16,8 @@ from ticktask.models import (
     CalendarEvent,
     UserTelegramSettings,
     UserAccessRequest,
+    NoteGroup,
+    Note,
 )
 
 
@@ -143,6 +145,35 @@ class UserAccessRequestAdmin(admin.ModelAdmin):
     list_select_related = ("user",)
     autocomplete_fields = ("user",)
     actions = (approve_requests, reject_requests)
+
+
+@admin.register(NoteGroup)
+class NoteGroupAdmin(admin.ModelAdmin):
+    """Manage users' note groups."""
+
+    list_display = ("name", "user", "order", "color")
+    list_filter = ("user",)
+    search_fields = ("name", "user__username")
+    ordering = ("user__username", "order", "name")
+    list_select_related = ("user",)
+    autocomplete_fields = ("user",)
+
+
+@admin.register(Note)
+class NoteAdmin(admin.ModelAdmin):
+    """Manage individual notes."""
+
+    list_display = ("title", "group", "owner", "done", "order")
+    list_filter = ("done",)
+    search_fields = ("title", "group__name", "group__user__username")
+    ordering = ("group__name", "order")
+    list_select_related = ("group", "group__user")
+    autocomplete_fields = ("group",)
+
+    @admin.display(description="User", ordering="group__user__username")
+    def owner(self, obj):
+        """The user the note ultimately belongs to."""
+        return obj.group.user
 
 
 @admin.register(UserLoginRecord)

@@ -81,6 +81,7 @@
     { label: "Time tracking", to: "/time-tracking", icon: "lucide:timer" },
     { label: "Dashboard", to: "/dashboard", icon: "lucide:chart-column" },
     { label: "Calendar", to: "/calendar", icon: "lucide:calendar-days" },
+    { label: "Notes", to: "/notes", icon: "lucide:notebook-pen" },
     { label: "History", to: "/time-history", icon: "lucide:history" },
     { label: "Settings", to: "/settings", icon: "lucide:settings" },
   ];

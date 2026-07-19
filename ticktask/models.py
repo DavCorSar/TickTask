@@ -170,6 +170,57 @@ class CalendarEvent(models.Model):
         ordering = ["start"]
 
 
+class NoteGroup(models.Model):
+    """
+    A user-owned group (like a folder or list) that holds :class:`Note` items,
+    e.g. "Shopping", "Ideas" or "Bugs to fix". Groups are ordered for display
+    and can carry an accent ``color``. Unlike tasks, notes are hard-deleted, so
+    a group's name is only reserved while it exists.
+    """
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="note_groups"
+    )
+    name = models.CharField(max_length=200)
+    color = models.CharField(max_length=20, blank=True, default="")
+    # Manual display order (ascending); ties fall back to the name.
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        """Order groups for display and keep names unique per user."""
+
+        ordering = ["order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "name"], name="unique_note_group_per_user"
+            )
+        ]
+
+
+class Note(models.Model):
+    """
+    A single pending item inside a :class:`NoteGroup`: a short ``title`` with an
+    optional longer ``body`` and a ``done`` flag so it can double as a checklist
+    item. Ordered manually within its group.
+    """
+
+    group = models.ForeignKey(
+        NoteGroup, on_delete=models.CASCADE, related_name="notes"
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default="")
+    done = models.BooleanField(default=False)
+    # Manual display order (ascending) within the group.
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["order", "created_at"]
+
+
 class UserTelegramSettings(models.Model):
     """
     Per-user Telegram configuration for event reminders. The bot itself is a

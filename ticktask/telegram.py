@@ -54,6 +54,8 @@ BOT_COMMANDS = [
     ("events", "Show your upcoming events"),
     ("newtask", "Create a new task"),
     ("newsubtask", "Create a new subtask"),
+    ("notes", "Show your notes"),
+    ("newnote", "Add a note"),
     ("cancel", "Cancel the current action"),
     ("help", "Show available commands"),
 ]
@@ -320,6 +322,8 @@ def _handle_command(user, chat_id, text: str) -> None:
         "clockout": _cmd_clockout,
         "newtask": _cmd_newtask,
         "newsubtask": _cmd_newsubtask,
+        "notes": _cmd_notes,
+        "newnote": _cmd_newnote,
         "cancel": _cmd_cancel,
     }.get(cmd)
     if handler is None:
@@ -458,6 +462,40 @@ def _cmd_newsubtask(user, chat_id) -> None:
     send_message(chat_id, "Which task is the subtask for?", reply_markup=_inline(rows))
 
 
+def _cmd_notes(user, chat_id) -> None:
+    """``/notes`` — list the user's groups and notes, with toggle buttons."""
+    groups = services.list_note_groups(user)
+    if not groups:
+        _safe_send(chat_id, "You have no notes yet. Add one with /newnote.")
+        return
+    lines = ["🗒 Your notes:"]
+    buttons = []
+    for group in groups:
+        lines.append("")
+        lines.append(f"📁 {group.name}")
+        notes = list(group.notes.all())
+        if not notes:
+            lines.append("  (empty)")
+            continue
+        for note in notes:
+            lines.append(f"  {'✅' if note.done else '⬜'} {note.title}")
+            # Offer a quick toggle for the first handful of notes (Telegram caps
+            # how many buttons are practical), so the list stays actionable.
+            if len(buttons) < LIST_LIMIT:
+                prefix = "↩️ Undo: " if note.done else "✓ Done: "
+                buttons.append([((prefix + note.title)[:60], f"nt:done:{note.id}")])
+    _safe_send(chat_id, "\n".join(lines), _inline(buttons) if buttons else None)
+
+
+def _cmd_newnote(user, chat_id) -> None:
+    """``/newnote`` — pick the group (or create one), then ask for the text."""
+    groups = services.list_note_groups(user)
+    rows = [[(g.name, f"nt:g:{g.id}")] for g in groups]
+    rows.append([("➕ New group", "nt:newg")])
+    text = "Which group is the note for?" if groups else "No groups yet — create one:"
+    send_message(chat_id, text, reply_markup=_inline(rows))
+
+
 def _cmd_cancel(user, chat_id) -> None:
     """``/cancel`` — drop any pending multi-step flow."""
     if _get_state(chat_id) is not None:
@@ -517,6 +555,16 @@ def _route_callback(user, chat_id, message_id, data: str) -> None:
             _start_new_task(chat_id)
         elif action == "news":
             _start_new_subtask(chat_id, int(parts[2]))
+        return
+
+    if kind == "nt":  # notes: pick group / new group / toggle a note
+        action = parts[1] if len(parts) > 1 else ""
+        if action == "g":
+            _start_new_note(chat_id, int(parts[2]))
+        elif action == "newg":
+            _start_new_note_group(chat_id)
+        elif action == "done":
+            _do_toggle_note(chat_id, user, int(parts[2]))
 
 
 def _show_task_picker(chat_id, user, message_id=None) -> None:
@@ -576,6 +624,19 @@ def _do_clock_out(chat_id, user, entry_id, message_id=None) -> None:
     )
 
 
+def _do_toggle_note(chat_id, user, note_id) -> None:
+    """Flips a note's done flag and confirms (as a fresh message, so the list
+    it was tapped from stays intact)."""
+    try:
+        note = services.toggle_note(user, note_id)
+    except services.ServiceError as exc:
+        _safe_send(chat_id, f"⚠️ {exc.message}")
+        return
+    mark = "✅" if note.done else "⬜"
+    status = "done" if note.done else "pending"
+    _safe_send(chat_id, f"{mark} {note.group.name} ▸ {note.title} — {status}.")
+
+
 # --------------------------------------------------------------------------- #
 # Multi-step create flows (ForceReply + cached state)
 # --------------------------------------------------------------------------- #
@@ -597,6 +658,26 @@ def _start_new_subtask(chat_id, task_id) -> None:
     send_message(
         chat_id,
         "Send a name for the new subtask (or /cancel):",
+        reply_markup={"force_reply": True},
+    )
+
+
+def _start_new_note_group(chat_id) -> None:
+    """Prompts for a note-group name and remembers we're awaiting it."""
+    _set_state(chat_id, {"action": "new_note_group"})
+    send_message(
+        chat_id,
+        "Send a name for the new group (or /cancel):",
+        reply_markup={"force_reply": True},
+    )
+
+
+def _start_new_note(chat_id, group_id) -> None:
+    """Prompts for the text of a new note under ``group_id``."""
+    _set_state(chat_id, {"action": "new_note", "group_id": group_id})
+    send_message(
+        chat_id,
+        "Send the note text (or /cancel):",
         reply_markup={"force_reply": True},
     )
 
@@ -623,6 +704,27 @@ def _handle_state_input(user, chat_id, state: dict, text: str) -> None:
             chat_id,
             f"✅ Created {_subtask_label(subtask)}.",
             reply_markup=_inline([[("▶️ Clock in", f"ci:s:{subtask.id}")]]),
+        )
+    elif action == "new_note_group":
+        _clear_state(chat_id)
+        try:
+            group = services.create_note_group(user, text)
+        except services.ServiceError as exc:
+            _safe_send(chat_id, f"⚠️ {exc.message}")
+            return
+        # Group created — carry straight on into adding its first note.
+        _start_new_note(chat_id, group.id)
+    elif action == "new_note":
+        _clear_state(chat_id)
+        try:
+            note = services.create_note(user, state["group_id"], text)
+        except services.ServiceError as exc:
+            _safe_send(chat_id, f"⚠️ {exc.message}")
+            return
+        send_message(
+            chat_id,
+            f"✅ Added to {note.group.name}: {note.title}",
+            reply_markup=_inline([[("✓ Mark done", f"nt:done:{note.id}")]]),
         )
     else:
         _clear_state(chat_id)

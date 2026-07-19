@@ -21,6 +21,8 @@ from ticktask.models import (
     TimeEntry,
     CalendarEvent,
     UserAccessRequest,
+    NoteGroup,
+    Note,
 )
 
 
@@ -319,6 +321,153 @@ def reject_access(req: UserAccessRequest) -> None:
     if user.is_active:
         user.is_active = False
         user.save(update_fields=["is_active"])
+
+
+# --------------------------------------------------------------------------- #
+# Notes (grouped pending items)
+# --------------------------------------------------------------------------- #
+#
+# Owned by the user through their group. These back both the HTTP API routes and
+# the Telegram bot, so they carry the ownership scoping and validation.
+
+
+def list_note_groups(user):
+    """Returns the user's note groups (ordered) with their notes prefetched."""
+    return list(
+        NoteGroup.objects.filter(user=user)  # pylint: disable=no-member
+        .order_by("order", "name")
+        .prefetch_related("notes")
+    )
+
+
+def create_note_group(user, name: str, color: str = "") -> NoteGroup:
+    """
+    Creates a note group for ``user``. Raises :class:`ServiceError` on an empty
+    name (422) or a name already used by another of the user's groups (409). New
+    groups are appended after the existing ones.
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ServiceError(422, "El nombre del grupo no puede estar vacío.")
+
+    if NoteGroup.objects.filter(user=user, name=name).exists():  # pylint: disable=no-member
+        raise ServiceError(409, "Ya existe un grupo con ese nombre.")
+
+    return NoteGroup.objects.create(  # pylint: disable=no-member
+        user=user, name=name, color=(color or "").strip(), order=_next_group_order(user)
+    )
+
+
+def update_note_group(user, group_id: int, name=None, color=None) -> NoteGroup:
+    """
+    Updates a group's name and/or color. Only the arguments that are not ``None``
+    are applied. Raises :class:`ServiceError` if the group is missing (404), the
+    new name is empty (422) or clashes with another group (409).
+    """
+    group = _get_owned_group(user, group_id)
+    fields = []
+    if name is not None:
+        name = name.strip()
+        if not name:
+            raise ServiceError(422, "El nombre del grupo no puede estar vacío.")
+        clash = (
+            NoteGroup.objects.filter(user=user, name=name)  # pylint: disable=no-member
+            .exclude(id=group.id)
+            .exists()
+        )
+        if clash:
+            raise ServiceError(409, "Ya existe un grupo con ese nombre.")
+        group.name = name
+        fields.append("name")
+    if color is not None:
+        group.color = color.strip()
+        fields.append("color")
+    if fields:
+        group.save(update_fields=fields + ["updated_at"])
+    return group
+
+
+def delete_note_group(user, group_id: int) -> None:
+    """Deletes one of the user's groups and all its notes. 404 if missing."""
+    group = _get_owned_group(user, group_id)
+    group.delete()
+
+
+def create_note(user, group_id: int, title: str, body: str = "") -> Note:
+    """
+    Creates a note in one of ``user``'s groups. Raises :class:`ServiceError` if
+    the group is missing (404) or the title is empty (422). New notes are
+    appended after the group's existing ones.
+    """
+    group = _get_owned_group(user, group_id)
+    title = (title or "").strip()
+    if not title:
+        raise ServiceError(422, "El título de la nota no puede estar vacío.")
+
+    return Note.objects.create(  # pylint: disable=no-member
+        group=group,
+        title=title,
+        body=(body or "").strip(),
+        order=_next_note_order(group),
+    )
+
+
+def update_note(user, note_id: int, title=None, body=None, done=None) -> Note:
+    """
+    Updates a note's title, body and/or done flag. Only the arguments that are
+    not ``None`` are applied. Raises :class:`ServiceError` if the note is missing
+    (404) or the new title is empty (422).
+    """
+    note = _get_owned_note(user, note_id)
+    fields = []
+    if title is not None:
+        title = title.strip()
+        if not title:
+            raise ServiceError(422, "El título de la nota no puede estar vacío.")
+        note.title = title
+        fields.append("title")
+    if body is not None:
+        note.body = body.strip()
+        fields.append("body")
+    if done is not None:
+        note.done = bool(done)
+        fields.append("done")
+    if fields:
+        note.save(update_fields=fields + ["updated_at"])
+    return note
+
+
+def toggle_note(user, note_id: int) -> Note:
+    """Flips a note's ``done`` flag. Raises :class:`ServiceError` (404) if missing."""
+    note = _get_owned_note(user, note_id)
+    note.done = not note.done
+    note.save(update_fields=["done", "updated_at"])
+    return note
+
+
+def delete_note(user, note_id: int) -> None:
+    """Deletes one of the user's notes. 404 if missing."""
+    note = _get_owned_note(user, note_id)
+    note.delete()
+
+
+def _next_group_order(user) -> int:
+    """Next display order for a new group (after the user's current last)."""
+    last = (
+        NoteGroup.objects.filter(user=user)  # pylint: disable=no-member
+        .order_by("-order")
+        .values_list("order", flat=True)
+        .first()
+    )
+    return (last or 0) + 1
+
+
+def _next_note_order(group: NoteGroup) -> int:
+    """Next display order for a new note within ``group``."""
+    last = (
+        group.notes.order_by("-order").values_list("order", flat=True).first()  # pylint: disable=no-member
+    )
+    return (last or 0) + 1
 
 
 # --------------------------------------------------------------------------- #
@@ -629,3 +778,23 @@ def _get_owned_subtask(user, subtask_id: int) -> SubTask:
     if subtask is None:
         raise ServiceError(404, "Subtarea no encontrada.")
     return subtask
+
+
+def _get_owned_group(user, group_id: int) -> NoteGroup:
+    """Fetches one of ``user``'s note groups or raises a 404 ServiceError."""
+    group = NoteGroup.objects.filter(id=group_id, user=user).first()  # pylint: disable=no-member
+    if group is None:
+        raise ServiceError(404, "Grupo no encontrado.")
+    return group
+
+
+def _get_owned_note(user, note_id: int) -> Note:
+    """Fetches one of ``user``'s notes or raises a 404 ServiceError."""
+    note = (
+        Note.objects.select_related("group")  # pylint: disable=no-member
+        .filter(id=note_id, group__user=user)
+        .first()
+    )
+    if note is None:
+        raise ServiceError(404, "Nota no encontrada.")
+    return note
