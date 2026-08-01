@@ -179,7 +179,7 @@ independent from the Tailscale SSH access; you don't need SSH for deploys.
 3. **Point the workflow at your deploy directory.** In GitHub: **repo → Settings
    → Secrets and variables → Actions → Variables → New repository variable**,
    name `DEPLOY_DIR`, value the absolute path of the clone from step 1 (e.g.
-   `/home/david/ticktask`).
+   `/home/david/Escritorio/deploy/TickTask`).
 
 4. **(Optional) Telegram deploy alerts.** Add two **repository secrets** (same
    screen, *Secrets* tab): `TELEGRAM_BOT_TOKEN` (your bot token) and
