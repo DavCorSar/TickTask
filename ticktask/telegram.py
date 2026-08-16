@@ -346,7 +346,7 @@ def _more_footer(count: int) -> str:
 
 def _cmd_today(user, chat_id) -> None:
     """``/today`` — today's tracked total, the open entry, and today's events."""
-    zone = _user_zone(user)
+    zone = user_zone(user)
     now_local = timezone.now().astimezone(zone)
     day_start = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = day_start + timedelta(days=1)
@@ -384,7 +384,7 @@ def _cmd_report(user, chat_id) -> None:
     _safe_send(chat_id, "📊 Building your report…")
 
     def build_and_send():
-        caption, images = reports.build_report(user, _user_zone(user))
+        caption, images = reports.build_report(user, user_zone(user))
         send_media_group(chat_id, images, caption)
 
     _safe(build_and_send)
@@ -415,7 +415,7 @@ def _cmd_events(user, chat_id) -> None:
     if not events:
         _safe_send(chat_id, "No upcoming events in the next 7 days.")
         return
-    zone = _user_zone(user)
+    zone = user_zone(user)
     lines = ["📅 Upcoming events:"]
     for event in events:
         lines.append(f"• {event.title} — {_format_event_when(event, zone)}")
@@ -858,7 +858,7 @@ def _format_event_when(event, zone: ZoneInfo) -> str:
     return start.strftime("%Y-%m-%d %H:%M %Z")
 
 
-def _user_zone(user) -> ZoneInfo:
+def user_zone(user) -> ZoneInfo:
     """The user's display timezone (their setting, or UTC), as a ``ZoneInfo``."""
     from ticktask.models import UserTelegramSettings  # pylint: disable=import-outside-toplevel
 
