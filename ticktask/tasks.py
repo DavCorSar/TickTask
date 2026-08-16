@@ -9,8 +9,14 @@ from celery import shared_task
 from django.db.models import Q
 from django.utils import timezone
 
-from ticktask import telegram, services
-from ticktask.models import TimeEntry, CalendarEvent, SentReminder
+from ticktask import telegram, services, google_calendar
+from ticktask.models import (
+    TimeEntry,
+    CalendarEvent,
+    SentReminder,
+    GoogleCalendarAccount,
+    GoogleCalendarPendingDeletion,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,3 +118,135 @@ def _reminder_text(event, config, kind) -> str:
         unit = "minute" if minutes == 1 else "minutes"
         return f'⏰ Reminder: "{event.title}" starts in {minutes} {unit}.'
     return f'🔔 "{event.title}" is starting now.'
+
+
+@shared_task
+def sync_google_calendar():
+    """
+    Syncs every connected user's calendar with Google, both ways:
+    pushes local non-recurring event changes, applies pending deletions, and
+    pulls remote changes back. Recurring events (either side) aren't synced —
+    see ``ticktask/google_calendar.py`` for the API client and scope notes.
+    """
+    accounts = GoogleCalendarAccount.objects.exclude(refresh_token="")  # pylint: disable=no-member
+    synced = 0
+    for account in accounts:
+        try:
+            _sync_account(account)
+            synced += 1
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "Google Calendar sync failed for user %s", account.user_id
+            )
+    return synced
+
+
+def _sync_account(account: GoogleCalendarAccount) -> None:
+    """Runs one full push+delete+pull sync pass for a single connected account."""
+    _push_local_changes(account)
+    _apply_pending_deletions(account)
+    _pull_remote_changes(account)
+    account.last_synced_at = timezone.now()
+    account.save(update_fields=["last_synced_at"])
+
+
+def _push_local_changes(account: GoogleCalendarAccount) -> None:
+    """Pushes non-recurring events created/edited locally since the last sync."""
+    changed = CalendarEvent.objects.filter(  # pylint: disable=no-member
+        user_id=account.user_id, recurrence=CalendarEvent.NONE
+    )
+    if account.last_synced_at:
+        changed = changed.filter(
+            Q(google_event_id="") | Q(updated_at__gt=account.last_synced_at)
+        )
+    for event in changed:
+        try:
+            google_id = google_calendar.push_event(account, event)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "Failed to push calendar event %s to Google Calendar", event.id
+            )
+            continue
+        if event.google_event_id != google_id:
+            CalendarEvent.objects.filter(id=event.id).update(  # pylint: disable=no-member
+                google_event_id=google_id
+            )
+
+
+def _apply_pending_deletions(account: GoogleCalendarAccount) -> None:
+    """Deletes on Google the events whose TickTask row is already gone."""
+    for tombstone in GoogleCalendarPendingDeletion.objects.filter(  # pylint: disable=no-member
+        account=account
+    ):
+        try:
+            google_calendar.delete_event(account, tombstone.google_event_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.exception(
+                "Failed to delete Google Calendar event %s",
+                tombstone.google_event_id,
+            )
+            continue
+        tombstone.delete()
+
+
+def _pull_remote_changes(account: GoogleCalendarAccount, retried: bool = False) -> None:
+    """Applies remote changes locally and stores the new incremental sync token."""
+    events, next_sync_token = google_calendar.list_changes(account)
+    if next_sync_token is None and not retried:
+        if account.sync_token:
+            # Google's syncToken expired (HTTP 410) — drop it and do one full
+            # resync from now instead of failing the whole pass.
+            account.sync_token = ""
+            return _pull_remote_changes(account, retried=True)
+        return
+    for g_event in events:
+        _apply_google_event(account, g_event)
+    account.sync_token = next_sync_token or ""
+
+
+def _apply_google_event(account: GoogleCalendarAccount, g_event: dict) -> None:
+    """Creates, updates or deletes the local counterpart of one Google event."""
+    google_id = g_event["id"]
+
+    if g_event.get("status") == "cancelled":
+        CalendarEvent.objects.filter(  # pylint: disable=no-member
+            user_id=account.user_id, google_event_id=google_id
+        ).delete()
+        return
+
+    # Recurring series (and their expanded instances) aren't mapped yet —
+    # skip rather than import something TickTask can't edit as a series.
+    if g_event.get("recurrence") or g_event.get("recurringEventId"):
+        return
+
+    start = google_calendar.parse_google_datetime(g_event.get("start"))
+    if start is None:
+        return
+    end = google_calendar.parse_google_datetime(g_event.get("end"))
+    all_day = "date" in (g_event.get("start") or {})
+
+    event = CalendarEvent.objects.filter(  # pylint: disable=no-member
+        user_id=account.user_id, google_event_id=google_id
+    ).first()
+    if event is None:
+        # Could be the echo of an event TickTask itself just pushed — attach
+        # to it instead of creating a duplicate.
+        ticktask_id = (
+            g_event.get("extendedProperties", {})
+            .get("private", {})
+            .get("ticktask_event_id")
+        )
+        if ticktask_id:
+            event = CalendarEvent.objects.filter(  # pylint: disable=no-member
+                id=ticktask_id, user_id=account.user_id
+            ).first()
+    if event is None:
+        event = CalendarEvent(user_id=account.user_id)
+
+    event.google_event_id = google_id
+    event.title = (g_event.get("summary") or "(untitled)")[:200]
+    event.description = (g_event.get("description") or "")[:600]
+    event.start = start
+    event.end = end
+    event.all_day = all_day
+    event.save()

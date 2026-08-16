@@ -1,4 +1,4 @@
-// Wraps the per-user settings API (currently Telegram reminders).
+// Wraps the per-user settings API (Telegram reminders, Google Calendar sync).
 // Must be called from a setup context.
 export function useSettings() {
   const { $api } = useNuxtApp();
@@ -21,5 +21,14 @@ export function useSettings() {
     unlinkTelegram: () => $api("/telegram/unlink/", { method: "POST" }),
 
     testTelegram: () => $api("/telegram/test/", { method: "POST" }),
+
+    getGoogleCalendar: () =>
+      $api("/google-calendar/status/", { method: "GET" }),
+
+    connectGoogleCalendar: () =>
+      $api("/google-calendar/connect/", { method: "POST" }),
+
+    disconnectGoogleCalendar: () =>
+      $api("/google-calendar/disconnect/", { method: "POST" }),
   };
 }

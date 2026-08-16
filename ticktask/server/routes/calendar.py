@@ -26,7 +26,13 @@ except RuntimeError:
 
 from django.db.models import Q
 from ticktask import services
-from ticktask.models import CalendarEvent, TimeEntry, SentReminder
+from ticktask.models import (
+    CalendarEvent,
+    TimeEntry,
+    SentReminder,
+    GoogleCalendarAccount,
+    GoogleCalendarPendingDeletion,
+)
 
 calendar_router = Router()
 
@@ -257,11 +263,30 @@ def update_event(request, event_id: int, data: CalendarEventUpdateSchema):
 )
 def delete_event(request, event_id: int):
     """
-    Deletes one of the user's events.
+    Deletes one of the user's events. If it was already synced to Google
+    Calendar, a tombstone is left so the periodic sync deletes it there too
+    (see ``ticktask.tasks.sync_google_calendar``).
     """
-    deleted, _ = CalendarEvent.objects.filter(  # pylint: disable=no-member
-        id=event_id, user=request.auth
-    ).delete()
-    if not deleted:
+    try:
+        event = CalendarEvent.objects.get(  # pylint: disable=no-member
+            id=event_id, user=request.auth
+        )
+    except CalendarEvent.DoesNotExist:  # pylint: disable=no-member
         raise HttpError(404, "Event not found.")
+
+    google_event_id = event.google_event_id
+    event.delete()
+
+    if google_event_id:
+        account = (
+            GoogleCalendarAccount.objects.filter(  # pylint: disable=no-member
+                user=request.auth
+            )
+            .exclude(refresh_token="")
+            .first()
+        )
+        if account:
+            GoogleCalendarPendingDeletion.objects.create(  # pylint: disable=no-member
+                account=account, google_event_id=google_event_id
+            )
     return {"success": True}
