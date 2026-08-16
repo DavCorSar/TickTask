@@ -217,6 +217,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ticktask.tasks.send_weekly_summaries",
         "schedule": crontab(minute=0, hour=7, day_of_week=1),
     },
+    "google-calendar-sync-every-5-min": {
+        "task": "ticktask.tasks.sync_google_calendar",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # Telegram bot (calendar event reminders). The token and username are
@@ -227,6 +231,20 @@ TELEGRAM_BOT_TOKEN = config("TELEGRAM_BOT_TOKEN", default="")
 TELEGRAM_BOT_USERNAME = config("TELEGRAM_BOT_USERNAME", default="")
 TELEGRAM_USE_WEBHOOK = config("TELEGRAM_USE_WEBHOOK", default=False, cast=bool)
 TELEGRAM_WEBHOOK_SECRET = config("TELEGRAM_WEBHOOK_SECRET", default="")
+
+# Public URL the frontend is served on (used to build the Google OAuth
+# redirect back to the SPA's settings page — see
+# ticktask/server/routes/google_calendar.py). Same origin the browser already
+# uses in production (the Tailscale Funnel / your domain).
+FRONTEND_URL = config("FRONTEND_URL", default="http://localhost:3000")
+
+# Google Calendar sync (optional, per-user). OAuth client created in the
+# Google Cloud Console — see DEPLOY.md. Bidirectional, but only for
+# non-recurring events (see ticktask/google_calendar.py and
+# ticktask.tasks.sync_google_calendar for the scope and the sync logic).
+GOOGLE_CALENDAR_CLIENT_ID = config("GOOGLE_CALENDAR_CLIENT_ID", default="")
+GOOGLE_CALENDAR_CLIENT_SECRET = config("GOOGLE_CALENDAR_CLIENT_SECRET", default="")
+GOOGLE_CALENDAR_REDIRECT_URI = config("GOOGLE_CALENDAR_REDIRECT_URI", default="")
 
 # Cache backend. Used for the Telegram bot's short-lived conversation state
 # (multi-step flows keyed by chat). Defaults to in-process memory, which is

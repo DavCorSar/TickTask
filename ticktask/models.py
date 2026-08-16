@@ -163,11 +163,57 @@ class CalendarEvent(models.Model):
     )
     # Optional inclusive cut-off: no occurrence starts after this. None = forever.
     recurrence_until = models.DateTimeField(null=True, blank=True, default=None)
+    # The counterpart Google Calendar event id, once synced (see
+    # ``ticktask/google_calendar.py`` and the ``sync_google_calendar`` task).
+    # Empty means either not synced yet, or the user hasn't connected Google
+    # Calendar. Recurring events (``recurrence`` set) are never synced.
+    google_event_id = models.CharField(max_length=255, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["start"]
+
+
+class GoogleCalendarAccount(models.Model):
+    """
+    Per-user Google Calendar OAuth connection, used to sync ``CalendarEvent``
+    rows both ways (see the ``sync_google_calendar`` Celery task). The app-wide
+    OAuth client id/secret live in settings; this stores the per-user grant.
+    """
+
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name="google_calendar_account"
+    )
+    access_token = models.CharField(max_length=2048, blank=True, default="")
+    refresh_token = models.CharField(max_length=2048, blank=True, default="")
+    token_expiry = models.DateTimeField(null=True, blank=True, default=None)
+    calendar_id = models.CharField(max_length=255, blank=True, default="primary")
+    # Google's incremental-sync cursor (see ``google_calendar.list_changes``).
+    # Cleared to force a full resync (e.g. right after connecting).
+    sync_token = models.CharField(max_length=1024, blank=True, default="")
+    connected_at = models.DateTimeField(null=True, blank=True, default=None)
+    last_synced_at = models.DateTimeField(null=True, blank=True, default=None)
+
+    @property
+    def connected(self) -> bool:
+        """Whether this account currently holds a usable Google grant."""
+        return bool(self.refresh_token)
+
+
+class GoogleCalendarPendingDeletion(models.Model):
+    """
+    Tombstone for an event deleted in TickTask that still needs to be deleted
+    from Google Calendar. Captured at delete time (see the ``delete_event``
+    route) because by the time the periodic sync task runs, the ``CalendarEvent``
+    row — and its ``google_event_id`` — is already gone.
+    """
+
+    account = models.ForeignKey(
+        GoogleCalendarAccount, on_delete=models.CASCADE, related_name="pending_deletions"
+    )
+    google_event_id = models.CharField(max_length=255)
+    created_at = models.DateTimeField(auto_now_add=True)
 
 
 class NoteGroup(models.Model):

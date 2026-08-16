@@ -13,7 +13,9 @@ optional **Telegram bot** to get reminders and drive the app from chat.
 - **Dashboard** — hours today/this week/total, a bucketed trend chart, a per-task /
   per-subtask breakdown, and a "this week by task" share view.
 - **Calendar** — month / week / day views; scheduled events with **recurrence**
-  (weekly / monthly / yearly) shown alongside your tracked time.
+  (weekly / monthly / yearly) shown alongside your tracked time. Optional
+  two-way sync of non-recurring events with **Google Calendar** (connect from
+  Settings — see `DEPLOY.md`).
 - **History** — time entries grouped by day with search and range presets.
 - **Accounts** — self-service signup **gated by admin approval**; management
   (renaming, deleting, restoring) via the Django admin.

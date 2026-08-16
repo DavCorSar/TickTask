@@ -163,11 +163,58 @@
         </div>
       </div>
     </UiCard>
+
+    <UiCard
+      title="Google Calendar sync"
+      subtitle="Keep non-recurring events in sync with your Google Calendar, both ways.">
+      <div
+        v-if="googleLoading"
+        class="flex items-center justify-center py-10 text-muted-foreground">
+        <Icon name="lucide:loader-circle" class="size-6 animate-spin" />
+      </div>
+
+      <div v-else-if="google" class="space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2.5">
+            <span
+              class="size-2.5 rounded-full"
+              :class="google.connected ? 'bg-accent' : 'bg-muted-foreground/40'"></span>
+            <span class="text-sm font-medium">
+              {{ google.connected ? "Connected" : "Not connected" }}
+            </span>
+          </div>
+          <UiButton
+            v-if="google.connected"
+            variant="ghost"
+            size="sm"
+            :loading="googleDisconnecting"
+            @click="disconnectGoogle">
+            Disconnect
+          </UiButton>
+          <UiButton
+            v-else
+            size="sm"
+            icon="lucide:link"
+            :loading="googleConnecting"
+            @click="connectGoogle">
+            Connect Google Calendar
+          </UiButton>
+        </div>
+        <p v-if="google.connected" class="text-sm text-muted-foreground">
+          Events sync automatically every few minutes.
+          <template v-if="google.last_synced_at">
+            Last synced {{ formatLastSynced(google.last_synced_at) }}.
+          </template>
+          Recurring events aren't synced yet.
+        </p>
+      </div>
+    </UiCard>
   </div>
 </template>
 
 <script setup>
   import { ref, computed, onMounted } from "vue";
+  import { useRoute, useRouter } from "vue-router";
   import QRCode from "qrcode";
 
   definePageMeta({
@@ -182,8 +229,13 @@
     linkTelegram,
     unlinkTelegram,
     testTelegram,
+    getGoogleCalendar,
+    connectGoogleCalendar,
+    disconnectGoogleCalendar,
   } = useSettings();
   const toast = useToast();
+  const route = useRoute();
+  const router = useRouter();
 
   const telegram = ref(null);
   const loading = ref(true);
@@ -198,6 +250,11 @@
   const enabled = ref(true);
   const leadMinutes = ref(15);
   const timezone = ref("");
+
+  const google = ref(null);
+  const googleLoading = ref(true);
+  const googleConnecting = ref(false);
+  const googleDisconnecting = ref(false);
 
   // Full IANA list from the browser when available; falls back to just UTC.
   const timezones =
@@ -315,5 +372,64 @@
     }
   }
 
-  onMounted(load);
+  function formatLastSynced(iso) {
+    return new Date(iso).toLocaleString();
+  }
+
+  async function loadGoogle() {
+    googleLoading.value = true;
+    try {
+      google.value = await getGoogleCalendar();
+    } catch (err) {
+      console.error("Error loading Google Calendar status:", err);
+      toast.error("Couldn't load your Google Calendar status.");
+    } finally {
+      googleLoading.value = false;
+    }
+  }
+
+  async function connectGoogle() {
+    googleConnecting.value = true;
+    try {
+      const { auth_url } = await connectGoogleCalendar();
+      // Full-page redirect: the OAuth consent screen isn't ours to render, and
+      // Google sends the browser straight back to the app when it's done.
+      window.location.href = auth_url;
+    } catch (err) {
+      console.error("Error starting Google Calendar connection:", err);
+      toast.error(
+        err?.data?.detail || "Couldn't start the Google Calendar connection.",
+      );
+      googleConnecting.value = false;
+    }
+  }
+
+  async function disconnectGoogle() {
+    googleDisconnecting.value = true;
+    try {
+      google.value = await disconnectGoogleCalendar();
+      toast.success("Google Calendar disconnected.");
+    } catch (err) {
+      console.error("Error disconnecting Google Calendar:", err);
+      toast.error("Couldn't disconnect Google Calendar.");
+    } finally {
+      googleDisconnecting.value = false;
+    }
+  }
+
+  onMounted(() => {
+    load();
+    loadGoogle();
+
+    const outcome = route.query.google_calendar;
+    if (outcome === "connected") {
+      toast.success("Google Calendar connected.");
+    } else if (outcome === "error") {
+      toast.error("Couldn't connect Google Calendar. Please try again.");
+    }
+    if (outcome) {
+      const { google_calendar, ...rest } = route.query;
+      router.replace({ query: rest });
+    }
+  });
 </script>

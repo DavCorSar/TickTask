@@ -37,8 +37,44 @@ Edit `.env`:
   you'll serve on (your Tailscale `.ts.net` URL, see step 3, or your domain).
 - `TS_AUTHKEY` — a Tailscale auth key, if using Funnel (step 3).
 - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_BOT_USERNAME` — if using the bot.
+- `FRONTEND_URL` / `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET`
+  / `GOOGLE_CALENDAR_REDIRECT_URI` — if enabling Google Calendar sync (optional,
+  see below).
 
 `.env` holds secrets — keep it off version control (it's git-ignored).
+
+### Google Calendar sync (optional)
+
+Lets each user connect their own Google Calendar from **Settings** in the app;
+non-recurring events then sync both ways automatically (see
+`ticktask/google_calendar.py` for what's in scope — recurring events aren't
+synced yet). Skip this whole section to leave the feature off — it stays
+hidden with a "not configured" response until these are set.
+
+1. In the [Google Cloud Console](https://console.cloud.google.com/), create a
+   project (or reuse one) and enable the **Google Calendar API** (APIs &
+   Services → Library).
+2. **OAuth consent screen** (APIs & Services → OAuth consent screen): choose
+   **External**, fill in the required fields, and add your own Google account
+   under **Test users** (the app stays in "Testing" mode — fine for a private,
+   single/few-user deployment, no Google review needed).
+3. **Credentials** (APIs & Services → Credentials → **Create credentials** →
+   **OAuth client ID**): application type **Web application**. Under
+   **Authorized redirect URIs**, add
+   `https://<your-public-url>/api/google-calendar/oauth/callback/` (the same
+   host as `DJANGO_ALLOWED_HOSTS`, with `https://` and that exact path).
+4. Copy the generated **Client ID** and **Client secret** into `.env`:
+   `GOOGLE_CALENDAR_CLIENT_ID`, `GOOGLE_CALENDAR_CLIENT_SECRET`. Set
+   `GOOGLE_CALENDAR_REDIRECT_URI` to the same URL you registered in step 3, and
+   `FRONTEND_URL` to your public URL (no trailing path) — it's where the OAuth
+   callback sends the browser back to.
+5. Restart the stack (`docker compose -f docker-compose.prod.yml up --build -d`)
+   so the backend picks up the new env vars, then connect from **Settings** in
+   the app.
+
+The `beat` service polls each connected account every 5 minutes (task
+`ticktask.tasks.sync_google_calendar`) — no public webhook/push subscription
+needed.
 
 ## 3. Expose it to the internet (HTTPS)
 
