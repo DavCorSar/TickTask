@@ -16,6 +16,13 @@
             class="size-4 rounded border-border accent-primary" />
           Show deleted
         </label>
+        <UiButton
+          icon="lucide:download"
+          variant="outline"
+          :disabled="!filtered.length"
+          @click="exportCsv">
+          Export CSV
+        </UiButton>
         <UiButton icon="lucide:plus" @click="openCreate">Add entry</UiButton>
       </div>
     </div>
@@ -258,4 +265,20 @@
   }
 
   watch([range, includeDeleted], load, { immediate: true });
+
+  function exportCsv() {
+    const rows = filtered.value.map((entry) => ({
+      ...entry,
+      durationMs: durationMs(entry),
+    }));
+    const csv = entriesToCsv(rows);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const today = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `ticktask-history-${today}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 </script>
