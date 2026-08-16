@@ -6,6 +6,7 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from django.contrib.auth.models import User
 from django.db.models import Q
 from django.utils import timezone
 
@@ -112,3 +113,67 @@ def _reminder_text(event, config, kind) -> str:
         unit = "minute" if minutes == 1 else "minutes"
         return f'⏰ Reminder: "{event.title}" starts in {minutes} {unit}.'
     return f'🔔 "{event.title}" is starting now.'
+
+
+TOP_TASKS_SHOWN = 5
+
+
+@shared_task
+def send_weekly_summaries():
+    """
+    Sends a Telegram summary of the trailing 7 days' tracked time to every user
+    who has notifications enabled and a linked chat, skipping anyone with
+    nothing tracked in the window. Purely an aggregation over already-tracked
+    entries (via ``services.weekly_task_hours``) — no LLM involved.
+    """
+    users = User.objects.filter(  # pylint: disable=no-member
+        telegram_settings__enabled=True,
+        telegram_settings__chat_id__isnull=False,
+    ).select_related("telegram_settings")
+
+    sent = 0
+    for user in users:
+        summary = services.weekly_task_hours(user)
+        if not summary["tasks"]:
+            continue
+        try:
+            telegram.send_message(
+                user.telegram_settings.chat_id, _weekly_summary_text(user, summary)
+            )
+            sent += 1
+        except Exception:  # pylint: disable=broad-except
+            logger.exception("Failed to send weekly summary for user %s", user.id)
+    return sent
+
+
+def _weekly_summary_text(user, summary: dict) -> str:
+    """Builds the weekly summary message text."""
+    zone = telegram.user_zone(user)
+    start = summary["start"].astimezone(zone).strftime("%b %d")
+    end = summary["end"].astimezone(zone).strftime("%b %d")
+
+    lines = [
+        f"📈 Weekly summary — {start} to {end}",
+        f"⏱ Total tracked: {_format_hours(summary['total_hours'])}",
+        "",
+        "Top tasks:",
+    ]
+    top = summary["tasks"][:TOP_TASKS_SHOWN]
+    for i, task in enumerate(top, 1):
+        lines.append(
+            f"{i}. {task['task_name']} — {_format_hours(task['hours'])} "
+            f"({task['percent']:.0f}%)"
+        )
+    remaining = len(summary["tasks"]) - len(top)
+    if remaining > 0:
+        lines.append(f"…and {remaining} more.")
+    return "\n".join(lines)
+
+
+def _format_hours(hours: float) -> str:
+    """Formats decimal hours as a compact ``Xh Ym`` label."""
+    minutes = round((hours or 0) * 60)
+    h, m = divmod(minutes, 60)
+    if h and m:
+        return f"{h}h {m}m"
+    return f"{h}h" if h else f"{m}m"

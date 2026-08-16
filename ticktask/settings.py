@@ -213,6 +213,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ticktask.tasks.send_due_event_reminders",
         "schedule": crontab(minute="*"),
     },
+    "weekly-summary-monday-morning": {
+        "task": "ticktask.tasks.send_weekly_summaries",
+        "schedule": crontab(minute=0, hour=7, day_of_week=1),
+    },
 }
 
 # Telegram bot (calendar event reminders). The token and username are
