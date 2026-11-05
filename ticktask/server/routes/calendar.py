@@ -70,6 +70,18 @@ def _validate_recurrence(
             raise HttpError(422, "The repeat-until date cannot be before the start.")
 
 
+def _clean_reminder_days(values: list[int]) -> list[int]:
+    """
+    Validates the day-ahead reminder offsets and returns them deduplicated and
+    sorted (e.g. ``[7, 1, 1]`` → ``[1, 7]``).
+    """
+    allowed = CalendarEvent.REMINDER_DAYS_CHOICES
+    if any(value not in allowed for value in values):
+        choices = ", ".join(str(value) for value in allowed)
+        raise HttpError(422, f"Reminder days must be any of: {choices}.")
+    return sorted(set(values))
+
+
 def _events_in_range(user, start: datetime, end: datetime):
     """
     Returns the user's event rows relevant to ``[start, end]``: one-off events
@@ -121,6 +133,7 @@ def _expand_events(user, start: datetime, end: datetime) -> list[dict]:
                     "color": event.color,
                     "recurrence": event.recurrence,
                     "recurrence_until": event.recurrence_until,
+                    "reminder_days_before": event.reminder_days_before,
                     "series_start": event.start,
                     "series_end": event.end,
                 }
@@ -143,6 +156,7 @@ def create_event(request, data: CalendarEventCreateSchema):
     title = data.title.strip()
     _validate_title(title)
     _validate_recurrence(data.recurrence, data.start, data.recurrence_until)
+    reminder_days = _clean_reminder_days(data.reminder_days_before)
 
     return CalendarEvent.objects.create(  # pylint: disable=no-member
         user=request.auth,
@@ -154,6 +168,7 @@ def create_event(request, data: CalendarEventCreateSchema):
         color=data.color.strip(),
         recurrence=data.recurrence,
         recurrence_until=data.recurrence_until,
+        reminder_days_before=reminder_days,
     )
 
 
@@ -243,14 +258,21 @@ def update_event(request, event_id: int, data: CalendarEventUpdateSchema):
     # Don't let an explicit null wipe the recurrence kind (it can't be None).
     if payload.get("recurrence") is None:
         payload.pop("recurrence", None)
+    # Likewise, an explicit null means "no change" for the day-ahead reminders.
+    if payload.get("reminder_days_before") is None:
+        payload.pop("reminder_days_before", None)
+    else:
+        payload["reminder_days_before"] = _clean_reminder_days(
+            payload["reminder_days_before"]
+        )
     for attr, value in payload.items():
         setattr(event, attr, value)
 
     _validate_range(event.start, event.end)
     _validate_recurrence(event.recurrence, event.start, event.recurrence_until)
     event.save()
-    # The event may have moved in time, so any reminders already sent for it no
-    # longer apply — drop them so the scheduler reconsiders the new times.
+    # The event may have moved in time (or its reminders changed), so any
+    # reminders already sent for it no longer apply — drop them so the scheduler reconsiders the new times.
     SentReminder.objects.filter(event=event).delete()  # pylint: disable=no-member
     return event
 

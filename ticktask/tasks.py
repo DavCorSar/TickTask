@@ -4,6 +4,7 @@ Definition of the tasks to be run by celery.
 
 import logging
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from celery import shared_task
 from django.contrib.auth.models import User
@@ -43,13 +44,18 @@ def autoclose_old_entries():
 def send_due_event_reminders():
     """
     Sends Telegram reminders for calendar events of users who have it enabled
-    and connected: one ``X`` minutes before each occurrence and one at its
-    start. Recurring events are reminded per occurrence; each (occurrence, kind)
-    reminder is sent at most once (tracked by ``SentReminder``).
+    and connected: one ``X`` minutes before each occurrence, one at its start,
+    and — per event — any day-ahead heads-ups (``reminder_days_before``: 1, 3 or
+    7 days before, same local time). Recurring events are reminded per
+    occurrence; each (occurrence, kind) reminder is sent at most once (tracked
+    by ``SentReminder``).
     """
     now = timezone.now()
     catchup = now - REMINDER_CATCHUP
-    horizon = now + timedelta(hours=24)
+    # Far enough ahead to reach the earliest possible day-ahead reminder (plus
+    # an hour of slack for DST shifts), and never less than the old 24 h.
+    max_days = max(CalendarEvent.REMINDER_DAYS_CHOICES)
+    horizon = now + timedelta(days=max_days, hours=1)
     events = (
         CalendarEvent.objects.filter(  # pylint: disable=no-member
             user__telegram_settings__enabled=True,
@@ -73,24 +79,49 @@ def send_due_event_reminders():
     for event in events:
         config = event.user.telegram_settings
         lead = config.reminder_lead_minutes or 0
+        zone = _config_zone(config)
+        days = [d for d in event.reminder_days_before or [] if d > 0]
         # An occurrence can be due now via its start (occ in [catchup, now]) or
-        # its lead instant (occ - lead in [catchup, now] → occ up to now + lead).
+        # one of its earlier instants (occ - offset in [catchup, now] → occ up
+        # to now + the largest offset, with an hour of slack for DST).
+        reach = max(
+            [timedelta(minutes=lead)]
+            + [timedelta(days=d, hours=1) for d in days]
+        )
         for occurrence in services.occurrences_between(
             event.start,
             event.recurrence,
             event.recurrence_until,
             catchup,
-            now + timedelta(minutes=lead),
+            now + reach,
         ):
             instants = [("start", occurrence)]
             if lead:
                 instants.append(("lead", occurrence - timedelta(minutes=lead)))
+            for d in days:
+                instants.append((f"days-{d}", _days_before(occurrence, d, zone)))
             for kind, instant in instants:
                 if catchup <= instant <= now and _send_reminder_once(
                     event, config, kind, occurrence
                 ):
                     sent += 1
     return sent
+
+
+def _config_zone(config) -> ZoneInfo:
+    """The user's display timezone from their Telegram settings (UTC fallback)."""
+    try:
+        return ZoneInfo(config.timezone or "UTC")
+    except Exception:  # pylint: disable=broad-except
+        return ZoneInfo("UTC")
+
+
+def _days_before(occurrence, days: int, zone: ZoneInfo):
+    """
+    The instant ``days`` days before ``occurrence`` at the same local wall-clock
+    time in ``zone`` (so a DST change in between doesn't shift it by an hour).
+    """
+    return occurrence.astimezone(zone) - timedelta(days=days)
 
 
 def _send_reminder_once(event, config, kind, occurrence) -> bool:
@@ -101,7 +132,9 @@ def _send_reminder_once(event, config, kind, occurrence) -> bool:
     if not created:
         return False
     try:
-        telegram.send_message(config.chat_id, _reminder_text(event, config, kind))
+        telegram.send_message(
+            config.chat_id, _reminder_text(event, config, kind, occurrence)
+        )
         return True
     except Exception:  # pylint: disable=broad-except
         # Roll back the marker so the next run retries.
@@ -112,12 +145,25 @@ def _send_reminder_once(event, config, kind, occurrence) -> bool:
         return False
 
 
-def _reminder_text(event, config, kind) -> str:
+def _reminder_text(event, config, kind, occurrence=None) -> str:
     """Builds the reminder message text."""
     if kind == "lead":
         minutes = config.reminder_lead_minutes
         unit = "minute" if minutes == 1 else "minutes"
         return f'⏰ Reminder: "{event.title}" starts in {minutes} {unit}.'
+    if kind.startswith("days-"):
+        days = int(kind.removeprefix("days-"))
+        if days == 7:
+            ahead = "in 1 week"
+        elif days == 1:
+            ahead = "tomorrow"
+        else:
+            ahead = f"in {days} days"
+        local = (occurrence or event.start).astimezone(_config_zone(config))
+        when = local.strftime("%a %d %b") if event.all_day else local.strftime(
+            "%a %d %b, %H:%M"
+        )
+        return f'📅 Reminder: "{event.title}" is {ahead} ({when}).'
     return f'🔔 "{event.title}" is starting now.'
 
 

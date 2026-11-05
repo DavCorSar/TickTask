@@ -55,6 +55,28 @@
       </p>
 
       <div>
+        <span class="mb-1.5 block text-sm font-medium">
+          Telegram reminders ahead
+        </span>
+        <div class="flex flex-wrap gap-x-4 gap-y-2">
+          <label
+            v-for="option in reminderDayOptions"
+            :key="option.value"
+            class="flex cursor-pointer items-center gap-2 text-sm">
+            <input
+              v-model="reminderDays"
+              type="checkbox"
+              :value="option.value"
+              class="size-4 rounded border-input text-primary focus:ring-2 focus:ring-ring" />
+            {{ option.label }}
+          </label>
+        </div>
+        <p class="mt-1 text-xs text-muted-foreground">
+          Sent at the event's start time, on top of your usual reminders.
+        </p>
+      </div>
+
+      <div>
         <span class="mb-1.5 block text-sm font-medium">Color</span>
         <div class="flex gap-2">
           <button
@@ -112,6 +134,12 @@
     "#0EA5E9",
   ];
 
+  const reminderDayOptions = [
+    { value: 1, label: "1 day before" },
+    { value: 3, label: "3 days before" },
+    { value: 7, label: "1 week before" },
+  ];
+
   const title = ref("");
   const description = ref("");
   const allDay = ref(false);
@@ -120,6 +148,7 @@
   const color = ref(presets[0]);
   const recurrence = ref("");
   const recurrenceUntilLocal = ref("");
+  const reminderDays = ref([]);
   const error = ref("");
   const saving = ref(false);
   const deleting = ref(false);
@@ -152,6 +181,7 @@
         recurrenceUntilLocal.value = props.event.recurrence_until
           ? toDateTimeLocal(props.event.recurrence_until).slice(0, 10)
           : "";
+        reminderDays.value = [...(props.event.reminder_days_before || [])];
       } else {
         const base = props.defaultStart
           ? new Date(props.defaultStart)
@@ -164,6 +194,7 @@
         color.value = presets[0];
         recurrence.value = "";
         recurrenceUntilLocal.value = "";
+        reminderDays.value = [];
       }
     },
   );
@@ -194,6 +225,7 @@
         recurrence.value && recurrenceUntilLocal.value
           ? new Date(`${recurrenceUntilLocal.value}T23:59:59`).toISOString()
           : null,
+      reminder_days_before: [...reminderDays.value].sort((a, b) => a - b),
     };
 
     if (payload.end && new Date(payload.end) < new Date(payload.start)) {
