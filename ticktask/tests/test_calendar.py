@@ -366,3 +366,91 @@ def test_endpoints_require_authentication():
         },
     )
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Day-ahead reminders
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.django_db
+def test_create_event_with_reminder_days():
+    """Day-ahead reminders are stored deduplicated and sorted."""
+    user = make_user()
+    start = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+
+    resp = post_json(
+        auth_client(user),
+        f"{BASE}/create-event/",
+        {"title": "Deadline", "start": iso(start), "reminder_days_before": [7, 1, 1]},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["reminder_days_before"] == [1, 7]
+    event = CalendarEvent.objects.get(user=user)  # pylint: disable=no-member
+    assert event.reminder_days_before == [1, 7]
+
+
+@pytest.mark.django_db
+def test_create_event_defaults_to_no_reminder_days():
+    """Without the field, an event has no day-ahead reminders."""
+    user = make_user()
+    start = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+
+    resp = post_json(
+        auth_client(user), f"{BASE}/create-event/", {"title": "X", "start": iso(start)}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["reminder_days_before"] == []
+
+
+@pytest.mark.django_db
+def test_create_event_rejects_invalid_reminder_days():
+    """Only 1, 3 and 7 days are accepted."""
+    user = make_user()
+    start = datetime(2026, 7, 1, 9, 0, tzinfo=timezone.utc)
+
+    resp = post_json(
+        auth_client(user),
+        f"{BASE}/create-event/",
+        {"title": "X", "start": iso(start), "reminder_days_before": [2]},
+    )
+
+    assert resp.status_code == 422
+    assert not CalendarEvent.objects.exists()  # pylint: disable=no-member
+
+
+@pytest.mark.django_db
+def test_update_event_reminder_days():
+    """Day-ahead reminders can be changed; omitting or nulling them keeps them."""
+    user = make_user()
+    event = CalendarEvent.objects.create(  # pylint: disable=no-member
+        user=user,
+        title="X",
+        start=datetime(2026, 7, 1, 9, tzinfo=timezone.utc),
+        reminder_days_before=[1],
+    )
+    client = auth_client(user)
+    path = f"{BASE}/update-event/{event.id}/"
+
+    resp = client.patch(
+        path, data=json.dumps({"reminder_days_before": [3, 7]}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 200
+    assert resp.json()["reminder_days_before"] == [3, 7]
+
+    for body in ({"title": "Y"}, {"reminder_days_before": None}):
+        resp = client.patch(path, data=json.dumps(body), content_type="application/json")
+        assert resp.status_code == 200
+    event.refresh_from_db()
+    assert event.reminder_days_before == [3, 7]
+
+    resp = client.patch(
+        path, data=json.dumps({"reminder_days_before": [5]}),
+        content_type="application/json",
+    )
+    assert resp.status_code == 422
+    event.refresh_from_db()
+    assert event.reminder_days_before == [3, 7]

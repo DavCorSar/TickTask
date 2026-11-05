@@ -145,6 +145,8 @@ class CalendarEvent(models.Model):
         (MONTHLY, "Monthly"),
         (YEARLY, "Yearly"),
     ]
+    # Allowed values for ``reminder_days_before``: 1 day, 3 days and 1 week.
+    REMINDER_DAYS_CHOICES = (1, 3, 7)
 
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="calendar_events"
@@ -168,6 +170,10 @@ class CalendarEvent(models.Model):
     # Empty means either not synced yet, or the user hasn't connected Google
     # Calendar. Recurring events (``recurrence`` set) are never synced.
     google_event_id = models.CharField(max_length=255, blank=True, default="")
+    # Extra Telegram heads-ups this many days before each occurrence (any subset
+    # of ``REMINDER_DAYS_CHOICES``), on top of the user's global minutes-before
+    # and at-start reminders. Empty = no day-ahead reminders.
+    reminder_days_before = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

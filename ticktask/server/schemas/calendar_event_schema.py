@@ -21,6 +21,7 @@ class CalendarEventSchema(Schema):
     color: str
     recurrence: str = ""
     recurrence_until: datetime | None = None
+    reminder_days_before: list[int] = []
 
 
 class CalendarOccurrenceSchema(CalendarEventSchema):
@@ -47,6 +48,7 @@ class CalendarEventCreateSchema(Schema):
     color: str = ""
     recurrence: str = ""
     recurrence_until: datetime | None = None
+    reminder_days_before: list[int] = []
 
 
 class CalendarEventUpdateSchema(Schema):
@@ -63,6 +65,7 @@ class CalendarEventUpdateSchema(Schema):
     color: str | None = None
     recurrence: str | None = None
     recurrence_until: datetime | None = None
+    reminder_days_before: list[int] | None = None
 
 
 class CalendarTimeEntrySchema(Schema):

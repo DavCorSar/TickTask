@@ -19,7 +19,8 @@ optional **Telegram bot** to get reminders and drive the app from chat.
 - **History** — time entries grouped by day with search and range presets.
 - **Accounts** — self-service signup **gated by admin approval**; management
   (renaming, deleting, restoring) via the Django admin.
-- **Telegram bot** — event reminders, plus interactive commands (`/clockin`,
+- **Telegram bot** — event reminders (minutes before and at the start, plus
+  optional per-event heads-ups 1 day, 3 days or 1 week ahead), plus interactive commands (`/clockin`,
   `/clockout`, `/today`, `/tasks`, `/events`, `/newtask`, …) and a per-user timezone.
 
 ## Architecture
